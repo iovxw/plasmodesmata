@@ -172,6 +172,9 @@ impl Decoder for FrameCodec {
         let mut payload = src.split_to(payload_length);
         let frame = match frame_type {
             0x0 => {
+                if identifier.0 == 0x0 {
+                    // PROTOCOL_ERROR
+                }
                 let end_stream = flags & 0x1 != 0;
                 let pad_length = if flags & 0x8 != 0 {
                     let length = eat_padding(&mut payload)?;
