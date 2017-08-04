@@ -159,7 +159,7 @@ impl Decoder for FrameCodec {
         if self.length.is_none() {
             self.length = Some(try_some!(U24Codec.decode(src)?));
         }
-        let payload_length = self.length.unwrap().0 as usize;
+        let payload_length = self.length.unwrap().as_u32() as usize;
 
         // frame header length = 9, `length` field length = 3, 9 - 3 = 6
         if src.len() < 6 + payload_length {
@@ -172,7 +172,7 @@ impl Decoder for FrameCodec {
         let mut payload = src.split_to(payload_length);
         let frame = match frame_type {
             0x0 => {
-                if identifier.0 == 0x0 {
+                if identifier.as_u32() == 0x0 {
                     // PROTOCOL_ERROR
                 }
                 let end_stream = flags & 0x1 != 0;
@@ -191,7 +191,7 @@ impl Decoder for FrameCodec {
                 }
             }
             0x1 => {
-                if identifier.0 == 0x0 {
+                if identifier.as_u32() == 0x0 {
                     // PROTOCOL_ERROR
                 }
                 let end_stream = flags & 0x1 != 0;
@@ -225,7 +225,7 @@ impl Decoder for FrameCodec {
                 }
             }
             0x2 => {
-                if identifier.0 == 0x0 {
+                if identifier.as_u32() == 0x0 {
                     // PROTOCOL_ERROR
                 }
                 if payload.len() != 5 {
@@ -241,7 +241,7 @@ impl Decoder for FrameCodec {
                 }
             }
             0x3 => {
-                if identifier.0 == 0x0 {
+                if identifier.as_u32() == 0x0 {
                     // PROTOCOL_ERROR
                 }
                 if payload.len() != 4 {
@@ -254,7 +254,7 @@ impl Decoder for FrameCodec {
                 }
             }
             0x4 => {
-                if identifier.0 != 0x0 {
+                if identifier.as_u32() != 0x0 {
                     // PROTOCOL_ERROR
                 }
                 if payload.len() % 6 != 0 {
@@ -279,7 +279,7 @@ impl Decoder for FrameCodec {
                 }
             }
             0x5 => {
-                if identifier.0 == 0x0 {
+                if identifier.as_u32() == 0x0 {
                     // PROTOCOL_ERROR
                 }
                 let end_headers = flags & 0x4 != 0;
@@ -303,7 +303,7 @@ impl Decoder for FrameCodec {
                 }
             }
             0x6 => {
-                if identifier.0 != 0x0 {
+                if identifier.as_u32() != 0x0 {
                     // PROTOCOL_ERROR
                 }
                 if payload.len() != 8 {
@@ -318,7 +318,7 @@ impl Decoder for FrameCodec {
                 }
             }
             0x7 => {
-                if identifier.0 != 0x0 {
+                if identifier.as_u32() != 0x0 {
                     // PROTOCOL_ERROR
                 }
                 if payload.len() < 8 {
@@ -340,7 +340,7 @@ impl Decoder for FrameCodec {
                     // FRAME_SIZE_ERROR
                 }
                 let (_, window_size_increment) = U31Codec.decode(&mut payload)?.unwrap();
-                if window_size_increment.0 == 0 {
+                if window_size_increment.as_u32() == 0 {
                     // PROTOCOL_ERROR
                 }
                 WindowUpdate {
@@ -349,7 +349,7 @@ impl Decoder for FrameCodec {
                 }
             }
             0x9 => {
-                if identifier.0 == 0x0 {
+                if identifier.as_u32() == 0x0 {
                     // PROTOCOL_ERROR
                 }
                 let end_headers = flags & 0x4 != 0;
@@ -421,16 +421,18 @@ impl Decoder for SettingCodec {
             0x2 => EnablePush(setting_value == 0),
             0x3 => MaxConcurrentStreams(setting_value),
             0x4 => {
-                if setting_value > U31::max_value().0 {
+                if setting_value > U31::max_value().as_u32() {
                     // PROTOCOL_ERROR
                 }
-                InitialWindowSize(U31(setting_value))
+                InitialWindowSize(U31::from(setting_value))
             }
             0x5 => {
-                if setting_value < U24::initial_value().0 || setting_value > U24::max_value().0 {
+                if setting_value < U24::initial_value().as_u32() ||
+                    setting_value > U24::max_value().as_u32()
+                {
                     // PROTOCOL_ERROR
                 }
-                MaxFrameSize(U24(setting_value))
+                MaxFrameSize(U24::from(setting_value))
             }
             0x6 => MaxHeaderListSize(setting_value),
             _ => Unknown,

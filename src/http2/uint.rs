@@ -4,7 +4,7 @@ use tokio_io::codec::{Encoder, Decoder};
 use bytes::{BytesMut, BigEndian, ByteOrder, BufMut};
 
 #[derive(Clone, Copy, Debug)]
-pub struct U31(pub u32);
+pub struct U31(u32);
 
 impl U31 {
     #[inline]
@@ -19,6 +19,10 @@ impl U31 {
     pub fn max_value() -> U31 {
         U31(0x7fffffff)
     }
+    #[inline]
+    pub fn as_u32(&self) -> u32 {
+        self.0
+    }
 }
 
 impl<'a> From<&'a [u8; 4]> for U31 {
@@ -26,6 +30,17 @@ impl<'a> From<&'a [u8; 4]> for U31 {
     fn from(src: &'a [u8; 4]) -> U31 {
         let n = BigEndian::read_u32(src);
         U31(n & 0x7fffffff)
+    }
+}
+
+impl From<u32> for U31 {
+    #[inline]
+    fn from(src: u32) -> U31 {
+        if src > Self::max_value().as_u32() {
+            Self::max_value()
+        } else {
+            U31(src)
+        }
     }
 }
 
@@ -63,7 +78,7 @@ impl Encoder for U31Codec {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct U24(pub u32);
+pub struct U24(u32);
 
 impl U24 {
     #[inline]
@@ -78,6 +93,10 @@ impl U24 {
     pub fn max_value() -> U24 {
         U24(0xffffff)
     }
+    #[inline]
+    pub fn as_u32(&self) -> u32 {
+        self.0
+    }
 }
 
 impl<'a> From<&'a [u8; 3]> for U24 {
@@ -86,6 +105,17 @@ impl<'a> From<&'a [u8; 3]> for U24 {
         let mut buf = [0u8; 4];
         buf[1..].clone_from_slice(src);
         U24(BigEndian::read_u32(&buf))
+    }
+}
+
+impl From<u32> for U24 {
+    #[inline]
+    fn from(src: u32) -> U24 {
+        if src > Self::max_value().as_u32() {
+            Self::max_value()
+        } else {
+            U24(src)
+        }
     }
 }
 
