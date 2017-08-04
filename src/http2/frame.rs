@@ -4,6 +4,7 @@ use tokio_io::codec::{Encoder, Decoder};
 use bytes::{BytesMut, BigEndian, ByteOrder};
 
 use super::uint::{U31, U31Codec, U24, U24Codec};
+use super::error::{Error, ErrorCode, ErrorCodeCodec};
 
 macro_rules! try_some {
     ($expr: expr) => {
@@ -129,6 +130,7 @@ pub enum Frame {
         end_headers: bool,
         header_block_fragment: Vec<u8>,
     },
+    Unknown,
 }
 
 pub struct FrameCodec {
@@ -143,7 +145,7 @@ impl Default for FrameCodec {
 
 impl Decoder for FrameCodec {
     type Item = Frame;
-    type Error = io::Error;
+    type Error = Error;
 
     // +-----------------------------------------------+
     // |                 Length (24)                   |
@@ -173,7 +175,7 @@ impl Decoder for FrameCodec {
         let frame = match frame_type {
             0x0 => {
                 if identifier.as_u32() == 0x0 {
-                    // PROTOCOL_ERROR
+                    return Err(ErrorCode::ProtocolError.into());
                 }
                 let end_stream = flags & 0x1 != 0;
                 let pad_length = if flags & 0x8 != 0 {
@@ -192,7 +194,7 @@ impl Decoder for FrameCodec {
             }
             0x1 => {
                 if identifier.as_u32() == 0x0 {
-                    // PROTOCOL_ERROR
+                    return Err(ErrorCode::ProtocolError.into());
                 }
                 let end_stream = flags & 0x1 != 0;
                 let end_headers = flags & 0x4 != 0;
@@ -204,7 +206,7 @@ impl Decoder for FrameCodec {
                 };
                 let (e, stream_dpendency, weight) = if flags & 0x20 != 0 {
                     if payload.len() < 5 {
-                        // FRAME_SIZE_ERROR
+                        return Err(ErrorCode::FrameSizeError.into());
                     }
                     let (e, stream_dpendency) = U31Codec.decode(&mut payload.split_to(4))?.unwrap();
                     let weight = payload.split_to(1)[0];
@@ -226,10 +228,10 @@ impl Decoder for FrameCodec {
             }
             0x2 => {
                 if identifier.as_u32() == 0x0 {
-                    // PROTOCOL_ERROR
+                    return Err(ErrorCode::ProtocolError.into());
                 }
                 if payload.len() != 5 {
-                    // FRAME_SIZE_ERROR
+                    return Err(ErrorCode::FrameSizeError.into());
                 }
                 let (e, stream_dpendency) = U31Codec.decode(&mut payload.split_to(4))?.unwrap();
                 let weight = payload[0];
@@ -242,10 +244,10 @@ impl Decoder for FrameCodec {
             }
             0x3 => {
                 if identifier.as_u32() == 0x0 {
-                    // PROTOCOL_ERROR
+                    return Err(ErrorCode::ProtocolError.into());
                 }
                 if payload.len() != 4 {
-                    // FRAME_SIZE_ERROR
+                    return Err(ErrorCode::FrameSizeError.into());
                 }
                 let error_code = BigEndian::read_u32(&payload);
                 RstStream {
@@ -255,14 +257,14 @@ impl Decoder for FrameCodec {
             }
             0x4 => {
                 if identifier.as_u32() != 0x0 {
-                    // PROTOCOL_ERROR
+                    return Err(ErrorCode::ProtocolError.into());
                 }
                 if payload.len() % 6 != 0 {
-                    // FRAME_SIZE_ERROR
+                    return Err(ErrorCode::FrameSizeError.into());
                 }
                 let ack = flags & 0x1 != 0;
                 if ack && payload.len() != 0 {
-                    // FRAME_SIZE_ERROR
+                    return Err(ErrorCode::FrameSizeError.into());
                 }
                 let n = payload.len() / 6;
                 let mut settings = Vec::with_capacity(n);
@@ -280,7 +282,7 @@ impl Decoder for FrameCodec {
             }
             0x5 => {
                 if identifier.as_u32() == 0x0 {
-                    // PROTOCOL_ERROR
+                    return Err(ErrorCode::ProtocolError.into());
                 }
                 let end_headers = flags & 0x4 != 0;
                 let pad_length = if flags & 0x8 != 0 {
@@ -290,7 +292,7 @@ impl Decoder for FrameCodec {
                     None
                 };
                 if payload.len() < 4 {
-                    // FRAME_SIZE_ERROR
+                    return Err(ErrorCode::FrameSizeError.into());
                 }
                 let (_, promised_stream_id) = U31Codec.decode(&mut payload.split_to(4))?.unwrap();
                 let header_block_fragment = Vec::from(&payload as &[u8]);
@@ -304,10 +306,10 @@ impl Decoder for FrameCodec {
             }
             0x6 => {
                 if identifier.as_u32() != 0x0 {
-                    // PROTOCOL_ERROR
+                    return Err(ErrorCode::ProtocolError.into());
                 }
                 if payload.len() != 8 {
-                    // FRAME_SIZE_ERROR
+                    return Err(ErrorCode::FrameSizeError.into());
                 }
                 let ack = flags & 0x1 != 0;
                 let opaque_data = BigEndian::read_u64(&payload);
@@ -319,10 +321,10 @@ impl Decoder for FrameCodec {
             }
             0x7 => {
                 if identifier.as_u32() != 0x0 {
-                    // PROTOCOL_ERROR
+                    return Err(ErrorCode::ProtocolError.into());
                 }
                 if payload.len() < 8 {
-                    // FRAME_SIZE_ERROR
+                    return Err(ErrorCode::FrameSizeError.into());
                 }
                 let (_, last_stream_id) = U31Codec.decode(&mut payload.split_to(4))?.unwrap();
                 let error_code = BigEndian::read_u32(&payload.split_to(4));
@@ -337,11 +339,11 @@ impl Decoder for FrameCodec {
             }
             0x8 => {
                 if payload_length != 4 {
-                    // FRAME_SIZE_ERROR
+                    return Err(ErrorCode::FrameSizeError.into());
                 }
                 let (_, window_size_increment) = U31Codec.decode(&mut payload)?.unwrap();
                 if window_size_increment.as_u32() == 0 {
-                    // PROTOCOL_ERROR
+                    return Err(ErrorCode::ProtocolError.into());
                 }
                 WindowUpdate {
                     identifier,
@@ -350,7 +352,7 @@ impl Decoder for FrameCodec {
             }
             0x9 => {
                 if identifier.as_u32() == 0x0 {
-                    // PROTOCOL_ERROR
+                    return Err(ErrorCode::ProtocolError.into());
                 }
                 let end_headers = flags & 0x4 != 0;
                 let header_block_fragment = Vec::from(&payload as &[u8]);
@@ -360,19 +362,19 @@ impl Decoder for FrameCodec {
                     header_block_fragment,
                 }
             }
-            _ => panic!(), // error
+            _ => Unknown,
         };
         Ok(Some(frame))
     }
 }
 
-fn eat_padding(payload: &mut BytesMut) -> Result<u8, io::Error> {
+fn eat_padding(payload: &mut BytesMut) -> Result<u8, Error> {
     if payload.len() < 1 {
-        // FRAME_SIZE_ERROR
+        return Err(ErrorCode::FrameSizeError.into());
     }
     let length = payload.split_to(1)[0];
     if payload.len() <= length as usize {
-        // PROTOCOL_ERROR
+        return Err(ErrorCode::ProtocolError.into());
     }
     let payload_len = payload.len(); // avoid mutable borrow checker
     payload.split_off(payload_len - length as usize);
@@ -381,7 +383,7 @@ fn eat_padding(payload: &mut BytesMut) -> Result<u8, io::Error> {
 
 impl Encoder for FrameCodec {
     type Item = Frame;
-    type Error = io::Error;
+    type Error = Error;
 
     fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
         unimplemented!()
@@ -407,7 +409,7 @@ struct SettingCodec;
 
 impl Decoder for SettingCodec {
     type Item = Setting;
-    type Error = io::Error;
+    type Error = Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         use self::Setting::*;
@@ -422,7 +424,7 @@ impl Decoder for SettingCodec {
             0x3 => MaxConcurrentStreams(setting_value),
             0x4 => {
                 if setting_value > U31::max_value().as_u32() {
-                    // PROTOCOL_ERROR
+                    return Err(ErrorCode::ProtocolError.into());
                 }
                 InitialWindowSize(U31::from(setting_value))
             }
@@ -430,7 +432,7 @@ impl Decoder for SettingCodec {
                 if setting_value < U24::initial_value().as_u32() ||
                     setting_value > U24::max_value().as_u32()
                 {
-                    // PROTOCOL_ERROR
+                    return Err(ErrorCode::ProtocolError.into());
                 }
                 MaxFrameSize(U24::from(setting_value))
             }

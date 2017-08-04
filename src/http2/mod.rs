@@ -8,6 +8,7 @@ use tokio_io::{AsyncRead, AsyncWrite};
 
 mod uint;
 mod frame;
+mod error;
 
 /// A transport-layer connection between two endpoints.
 pub struct Connection<S>
