@@ -66,6 +66,7 @@ pub enum ErrorCode {
     EnhanceYourCalm,
     InadequateSecurity,
     Http11Required,
+    Unknown(u32),
 }
 
 impl fmt::Display for ErrorCode {
@@ -86,6 +87,7 @@ impl fmt::Display for ErrorCode {
             EnhanceYourCalm => "ENHANCE_YOUR_CALM",
             InadequateSecurity => "INADEQUATE_SECURITY",
             Http11Required => "HTTP_1_1_REQUIRED",
+            Unknown(c) => return write!(f, "UNKNOWN({:#x})", c),
         };
         f.write_str(s)
     }
@@ -118,7 +120,7 @@ impl Decoder for ErrorCodeCodec {
             0xb => EnhanceYourCalm,
             0xc => InadequateSecurity,
             0xd => Http11Required,
-            _ => InternalError,
+            _ => Unknown(code),
         };
         Ok(Some(e))
     }
@@ -145,6 +147,7 @@ impl Encoder for ErrorCodeCodec {
             EnhanceYourCalm => 0xb,
             InadequateSecurity => 0xc,
             Http11Required => 0xd,
+            Unknown(c) => c,
         };
         dst.put_u32::<BigEndian>(code);
         Ok(())

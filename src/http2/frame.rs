@@ -1,7 +1,5 @@
-use std::io;
-
 use tokio_io::codec::{Encoder, Decoder};
-use bytes::{BytesMut, BigEndian, ByteOrder};
+use bytes::{BytesMut, BigEndian, ByteOrder, BufMut};
 
 use super::uint::{U31, U31Codec, U24, U24Codec};
 use super::error::{Error, ErrorCode, ErrorCodeCodec};
@@ -64,7 +62,10 @@ pub enum Frame {
     // +---------------------------------------------------------------+
     // |                        Error Code (32)                        |
     // +---------------------------------------------------------------+
-    RstStream { identifier: U31, error_code: u32 },
+    RstStream {
+        identifier: U31,
+        error_code: ErrorCode,
+    },
     // +-------------------------------+
     // |       Identifier (16)         |
     // +-------------------------------+-------------------------------+
@@ -130,7 +131,12 @@ pub enum Frame {
         end_headers: bool,
         header_block_fragment: Vec<u8>,
     },
-    Unknown,
+    Unknown {
+        identifier: U31,
+        kind: u8,
+        flags: u8,
+        payload: Vec<u8>,
+    },
 }
 
 pub struct FrameCodec {
@@ -249,7 +255,7 @@ impl Decoder for FrameCodec {
                 if payload.len() != 4 {
                     return Err(ErrorCode::FrameSizeError.into());
                 }
-                let error_code = BigEndian::read_u32(&payload);
+                let error_code = ErrorCodeCodec.decode(&mut payload)?.unwrap();
                 RstStream {
                     identifier,
                     error_code,
@@ -269,10 +275,8 @@ impl Decoder for FrameCodec {
                 let n = payload.len() / 6;
                 let mut settings = Vec::with_capacity(n);
                 for _ in 0..n {
-                    match SettingCodec.decode(src)?.unwrap() {
-                        Setting::Unknown => (), // ignore
-                        setting => settings.push(setting),
-                    }
+                    let setting = SettingCodec.decode(src)?.unwrap();
+                    settings.push(setting);
                 }
                 Settings {
                     identifier,
@@ -329,7 +333,6 @@ impl Decoder for FrameCodec {
                 let (_, last_stream_id) = U31Codec.decode(&mut payload.split_to(4))?.unwrap();
                 let error_code = BigEndian::read_u32(&payload.split_to(4));
                 let additional_debug_data = Vec::from(&payload as &[u8]);
-                // FIXME: 特定帧需要标识符必须为 0，检查
                 Goaway {
                     identifier,
                     last_stream_id,
@@ -362,7 +365,12 @@ impl Decoder for FrameCodec {
                     header_block_fragment,
                 }
             }
-            _ => Unknown,
+            _ => Unknown {
+                identifier: identifier,
+                kind: frame_type,
+                flags: flags,
+                payload: Vec::from(&payload as &[u8]),
+            },
         };
         Ok(Some(frame))
     }
@@ -402,7 +410,7 @@ pub enum Setting {
     InitialWindowSize(U31),
     MaxFrameSize(U24),
     MaxHeaderListSize(u32),
-    Unknown,
+    Unknown(u16, u32),
 }
 
 struct SettingCodec;
@@ -420,7 +428,7 @@ impl Decoder for SettingCodec {
         let setting_value = BigEndian::read_u32(&src.split_to(4));
         let r = match setting_id {
             0x1 => HeaderTableSize(setting_value),
-            0x2 => EnablePush(setting_value == 0),
+            0x2 => EnablePush(setting_value != 0),
             0x3 => MaxConcurrentStreams(setting_value),
             0x4 => {
                 if setting_value > U31::max_value().as_u32() {
@@ -437,8 +445,29 @@ impl Decoder for SettingCodec {
                 MaxFrameSize(U24::from(setting_value))
             }
             0x6 => MaxHeaderListSize(setting_value),
-            _ => Unknown,
+            _ => Unknown(setting_id, setting_value),
         };
         Ok(Some(r))
+    }
+}
+
+impl Encoder for SettingCodec {
+    type Item = Setting;
+    type Error = Error;
+
+    fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
+        use self::Setting::*;
+        let (id, value) = match item {
+            HeaderTableSize(value) => (0x1, value),
+            EnablePush(value) => (0x2, if value { 0x1 } else { 0x0 }),
+            MaxConcurrentStreams(value) => (0x3, value),
+            InitialWindowSize(value) => (0x4, value.as_u32()),
+            MaxFrameSize(value) => (0x5, value.as_u32()),
+            MaxHeaderListSize(value) => (0x6, value),
+            Unknown(id, value) => (id, value),
+        };
+        dst.put_u16::<BigEndian>(id);
+        dst.put_u32::<BigEndian>(value);
+        Ok(())
     }
 }
