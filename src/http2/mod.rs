@@ -1,8 +1,6 @@
 use std::io;
 use std::net::SocketAddr;
-use std::rc::Rc;
 
-use rustls::ServerConfig;
 use futures::{Future, Stream as FutureStream, Poll};
 use tokio_io::{AsyncRead, AsyncWrite};
 

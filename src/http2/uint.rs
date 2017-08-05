@@ -103,7 +103,7 @@ impl<'a> From<&'a [u8; 3]> for U24 {
     #[inline]
     fn from(src: &'a [u8; 3]) -> U24 {
         let mut buf = [0u8; 4];
-        buf[1..].clone_from_slice(src);
+        buf[1..].copy_from_slice(src);
         U24(BigEndian::read_u32(&buf))
     }
 }

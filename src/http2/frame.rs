@@ -1,3 +1,5 @@
+use std::iter;
+
 use tokio_io::codec::{Encoder, Decoder};
 use bytes::{BytesMut, BigEndian, ByteOrder, BufMut};
 
@@ -113,7 +115,7 @@ pub enum Frame {
     Goaway {
         identifier: U31,
         last_stream_id: U31,
-        error_code: u32,
+        error_code: ErrorCode,
         additional_debug_data: Vec<u8>,
     },
     // +-+-------------------------------------------------------------+
@@ -176,7 +178,7 @@ impl Decoder for FrameCodec {
 
         let frame_type = src.split_to(1)[0];
         let flags = src.split_to(1)[0];
-        let (_, identifier) = U31Codec.decode(&mut src.split_to(4))?.unwrap();
+        let (_, identifier) = U31Codec.decode(src)?.unwrap();
         let mut payload = src.split_to(payload_length);
         let frame = match frame_type {
             0x0 => {
@@ -214,7 +216,7 @@ impl Decoder for FrameCodec {
                     if payload.len() < 5 {
                         return Err(ErrorCode::FrameSizeError.into());
                     }
-                    let (e, stream_dpendency) = U31Codec.decode(&mut payload.split_to(4))?.unwrap();
+                    let (e, stream_dpendency) = U31Codec.decode(&mut payload)?.unwrap();
                     let weight = payload.split_to(1)[0];
                     (Some(e), Some(stream_dpendency), Some(weight))
                 } else {
@@ -239,7 +241,7 @@ impl Decoder for FrameCodec {
                 if payload.len() != 5 {
                     return Err(ErrorCode::FrameSizeError.into());
                 }
-                let (e, stream_dpendency) = U31Codec.decode(&mut payload.split_to(4))?.unwrap();
+                let (e, stream_dpendency) = U31Codec.decode(&mut payload)?.unwrap();
                 let weight = payload[0];
                 Priority {
                     identifier,
@@ -269,7 +271,7 @@ impl Decoder for FrameCodec {
                     return Err(ErrorCode::FrameSizeError.into());
                 }
                 let ack = flags & 0x1 != 0;
-                if ack && payload.len() != 0 {
+                if ack && !payload.is_empty() {
                     return Err(ErrorCode::FrameSizeError.into());
                 }
                 let n = payload.len() / 6;
@@ -298,7 +300,7 @@ impl Decoder for FrameCodec {
                 if payload.len() < 4 {
                     return Err(ErrorCode::FrameSizeError.into());
                 }
-                let (_, promised_stream_id) = U31Codec.decode(&mut payload.split_to(4))?.unwrap();
+                let (_, promised_stream_id) = U31Codec.decode(&mut payload)?.unwrap();
                 let header_block_fragment = Vec::from(&payload as &[u8]);
                 PushPromise {
                     identifier,
@@ -330,8 +332,8 @@ impl Decoder for FrameCodec {
                 if payload.len() < 8 {
                     return Err(ErrorCode::FrameSizeError.into());
                 }
-                let (_, last_stream_id) = U31Codec.decode(&mut payload.split_to(4))?.unwrap();
-                let error_code = BigEndian::read_u32(&payload.split_to(4));
+                let (_, last_stream_id) = U31Codec.decode(&mut payload)?.unwrap();
+                let error_code = ErrorCodeCodec.decode(&mut payload)?.unwrap();
                 let additional_debug_data = Vec::from(&payload as &[u8]);
                 Goaway {
                     identifier,
@@ -394,7 +396,216 @@ impl Encoder for FrameCodec {
     type Error = Error;
 
     fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        unimplemented!()
+        use self::Frame::*;
+        match item {
+            Data {
+                identifier,
+                end_stream,
+                pad_length,
+                data,
+            } => {
+                let length = U24::from(
+                    pad_length.map(|x| x + 1).unwrap_or_default() as u32 +
+                        data.len() as u32,
+                );
+                U24Codec.encode(length, dst)?;
+                dst.put_u8(0x0);
+                let mut flags = 0x0;
+                if end_stream {
+                    flags |= 0x1;
+                }
+                if pad_length.is_some() {
+                    flags |= 0x8;
+                }
+                dst.put_u8(flags);
+                U31Codec.encode((false, identifier), dst)?;
+                if let Some(pad_length) = pad_length {
+                    dst.put_u8(pad_length);
+                }
+                dst.put_slice(&data);
+                dst.extend(iter::repeat(0).take(
+                    pad_length.unwrap_or_default() as usize,
+                ));
+            }
+            Headers {
+                identifier,
+                end_stream,
+                end_headers,
+                pad_length,
+                e,
+                stream_dpendency,
+                weight,
+                header_block_fragment,
+            } => {
+                assert!(
+                    e.is_some() == stream_dpendency.is_some() && e.is_some() == weight.is_some()
+                );
+                let length = U24::from(
+                    pad_length.map(|x| x + 1).unwrap_or_default() as u32 +
+                        if e.is_some() { 4 + 1 } else { 0 } +
+                        header_block_fragment.len() as u32,
+                );
+                U24Codec.encode(length, dst)?;
+                dst.put_u8(0x1);
+                let mut flags = 0x0;
+                if end_stream {
+                    flags |= 0x1;
+                }
+                if end_headers {
+                    flags |= 0x4;
+                }
+                if pad_length.is_some() {
+                    flags |= 0x8;
+                }
+                if e.is_some() {
+                    flags |= 0x20;
+                }
+                dst.put_u8(flags);
+                U31Codec.encode((false, identifier), dst)?;
+                if let Some(pad_length) = pad_length {
+                    dst.put_u8(pad_length);
+                }
+                if let Some(e) = e {
+                    U31Codec.encode((e, stream_dpendency.unwrap()), dst)?;
+                    dst.put_u8(weight.unwrap());
+                }
+                dst.put_slice(&header_block_fragment);
+                dst.extend(iter::repeat(0).take(
+                    pad_length.unwrap_or_default() as usize,
+                ));
+            }
+            Priority {
+                identifier,
+                e,
+                stream_dpendency,
+                weight,
+            } => {
+                U24Codec.encode(U24::from(5), dst)?;
+                dst.put_u8(0x2);
+                dst.put_u8(0x0);
+                U31Codec.encode((false, identifier), dst)?;
+                U31Codec.encode((e, stream_dpendency), dst)?;
+                dst.put_u8(weight);
+            }
+            RstStream {
+                identifier,
+                error_code,
+            } => {
+                U24Codec.encode(U24::from(4), dst)?;
+                dst.put_u8(0x3);
+                dst.put_u8(0x0);
+                U31Codec.encode((false, identifier), dst)?;
+                ErrorCodeCodec.encode(error_code, dst)?;
+            }
+            Settings {
+                identifier,
+                ack,
+                settings,
+            } => {
+                assert!(!(ack && !settings.is_empty()));
+                U24Codec.encode(U24::from(settings.len() as u32 * 6), dst)?;
+                dst.put_u8(0x4);
+                dst.put_u8(if ack { 0x1 } else { 0x0 });
+                U31Codec.encode((false, identifier), dst)?;
+                for setting in settings {
+                    SettingCodec.encode(setting, dst)?;
+                }
+            }
+            PushPromise {
+                identifier,
+                end_headers,
+                pad_length,
+                promised_stream_id,
+                header_block_fragment,
+            } => {
+                let length = U24::from(
+                    pad_length.map(|x| x + 1).unwrap_or_default() as u32 + 4 +
+                        header_block_fragment.len() as u32,
+                );
+                U24Codec.encode(length, dst)?;
+                dst.put_u8(0x5);
+                let mut flags = 0x0;
+                if end_headers {
+                    flags |= 0x4;
+                }
+                if pad_length.is_some() {
+                    flags |= 0x8;
+                }
+                dst.put_u8(flags);
+                U31Codec.encode((false, identifier), dst)?;
+                if let Some(pad_length) = pad_length {
+                    dst.put_u8(pad_length);
+                }
+                U31Codec.encode((false, promised_stream_id), dst)?;
+                dst.put_slice(&header_block_fragment);
+                dst.extend(iter::repeat(0).take(
+                    pad_length.unwrap_or_default() as usize,
+                ));
+            }
+            Ping {
+                identifier,
+                ack,
+                opaque_data,
+            } => {
+                U24Codec.encode(U24::from(8), dst)?;
+                dst.put_u8(0x6);
+                dst.put_u8(if ack { 0x1 } else { 0x0 });
+                U31Codec.encode((false, identifier), dst)?;
+                dst.put_u64::<BigEndian>(opaque_data);
+            }
+            Goaway {
+                identifier,
+                last_stream_id,
+                error_code,
+                additional_debug_data,
+            } => {
+                let length = U24::from(4 + 4 + additional_debug_data.len() as u32);
+                U24Codec.encode(length, dst)?;
+                dst.put_u8(0x7);
+                dst.put_u8(0x0);
+                U31Codec.encode((false, identifier), dst)?;
+                U31Codec.encode((false, last_stream_id), dst)?;
+                ErrorCodeCodec.encode(error_code, dst)?;
+                dst.put_slice(&additional_debug_data);
+            }
+            WindowUpdate {
+                identifier,
+                window_size_increment,
+            } => {
+                U24Codec.encode(U24::from(4), dst)?;
+                dst.put_u8(0x8);
+                dst.put_u8(0x0);
+                U31Codec.encode((false, identifier), dst)?;
+                U31Codec.encode((false, window_size_increment), dst)?;
+            }
+            Continuation {
+                identifier,
+                end_headers,
+                header_block_fragment,
+            } => {
+                U24Codec.encode(
+                    U24::from(header_block_fragment.len() as u32),
+                    dst,
+                )?;
+                dst.put_u8(0x9);
+                dst.put_u8(if end_headers { 0x4 } else { 0x0 });
+                U31Codec.encode((false, identifier), dst)?;
+                dst.put_slice(&header_block_fragment);
+            }
+            Unknown {
+                identifier,
+                kind,
+                flags,
+                payload,
+            } => {
+                U24Codec.encode(U24::from(payload.len() as u32), dst)?;
+                dst.put_u8(kind);
+                dst.put_u8(flags);
+                U31Codec.encode((false, identifier), dst)?;
+                dst.put_slice(&payload);
+            }
+        }
+        Ok(())
     }
 }
 
