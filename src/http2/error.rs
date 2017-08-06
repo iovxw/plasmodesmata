@@ -50,7 +50,7 @@ impl From<ErrorCode> for Error {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum ErrorCode {
     NoError,
     ProtocolError,

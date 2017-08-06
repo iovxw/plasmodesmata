@@ -722,4 +722,25 @@ mod test {
             assert_eq!(buf, binary);
         }
     }
+
+    #[test]
+    fn setting_error() {
+        let tests: &[(&[u8], ErrorCode)] =
+            &[
+                (&[0x0, 0x4, 0xff, 0xff, 0xff, 0xff], ErrorCode::ProtocolError),
+                (&[0x0, 0x5, 0xff, 0xff, 0xff, 0xff], ErrorCode::ProtocolError),
+                (&[0x0, 0x5, 0x0, 0x0, 0x0, 0x0], ErrorCode::ProtocolError),
+            ];
+        for &(binary, error) in tests {
+            let r = SettingCodec.decode(&mut binary.into()).expect_err(
+                "setting_error",
+            );
+            assert!(if let Error::Http(e) = r {
+                assert_eq!(e, error);
+                true
+            } else {
+                false
+            });
+        }
+    }
 }
