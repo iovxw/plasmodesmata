@@ -614,6 +614,7 @@ impl Encoder for FrameCodec {
 // +-------------------------------+-------------------------------+
 // |                        Value (32)                             |
 // +---------------------------------------------------------------+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Setting {
     HeaderTableSize(u32),
     EnablePush(bool),
@@ -680,5 +681,45 @@ impl Encoder for SettingCodec {
         dst.put_u16::<BigEndian>(id);
         dst.put_u32::<BigEndian>(value);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn setting() {
+        let tests: &[(&[u8], Setting)] =
+            &[
+                (&[0x0, 0x1, 0x0, 0x0, 0x0, 0x1], Setting::HeaderTableSize(1)),
+                (&[0x0, 0x2, 0x0, 0x0, 0x0, 0x1], Setting::EnablePush(true)),
+                (
+                    &[0x0, 0x3, 0x0, 0x0, 0x0, 0x1],
+                    Setting::MaxConcurrentStreams(1),
+                ),
+                (
+                    &[0x0, 0x4, 0x0, 0x0, 0x0, 0x1],
+                    Setting::InitialWindowSize(U31::from(1)),
+                ),
+                (
+                    &[0x0, 0x5, 0x0, 0xff, 0xff, 0xff],
+                    Setting::MaxFrameSize(U24::max_value()),
+                ),
+                (
+                    &[0x0, 0x6, 0x0, 0x0, 0x0, 0x1],
+                    Setting::MaxHeaderListSize(1),
+                ),
+                (&[0x0, 0x7, 0x0, 0x0, 0x0, 0x1], Setting::Unknown(0x7, 0x1)),
+            ];
+        for &(binary, result) in tests {
+            let r = SettingCodec.decode(&mut binary.into()).unwrap().expect(
+                "setting",
+            );
+            assert_eq!(r, result);
+            let mut buf = BytesMut::with_capacity(6);
+            SettingCodec.encode(r, &mut buf).unwrap();
+            assert_eq!(buf, binary);
+        }
     }
 }
