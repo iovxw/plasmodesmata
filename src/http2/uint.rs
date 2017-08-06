@@ -163,6 +163,11 @@ mod test {
     }
 
     #[test]
+    fn u31_overflow() {
+        assert_eq!(U31::from(::std::u32::MAX), U31::max_value());
+    }
+
+    #[test]
     fn u24() {
         let data: &[u8] = &[255, 255, 255];
         let r = U24Codec.decode(&mut data.into()).unwrap().expect("u24");
@@ -170,5 +175,10 @@ mod test {
         let mut buf = BytesMut::with_capacity(3);
         U24Codec.encode(r, &mut buf).unwrap();
         assert_eq!(buf, data);
+    }
+
+    #[test]
+    fn u24_overflow() {
+        assert_eq!(U24::from(::std::u32::MAX), U24::max_value());
     }
 }
