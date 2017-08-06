@@ -3,7 +3,7 @@ use std::io;
 use tokio_io::codec::{Encoder, Decoder};
 use bytes::{BytesMut, BigEndian, ByteOrder, BufMut};
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct U31(u32);
 
 impl U31 {
@@ -77,7 +77,7 @@ impl Encoder for U31Codec {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct U24(u32);
 
 impl U24 {
@@ -145,5 +145,30 @@ impl Encoder for U24Codec {
         BigEndian::write_u32(&mut buf, item.0);
         dst.extend_from_slice(&buf[1..]);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn u31() {
+        let data: &[u8] = &[255, 255, 255, 255];
+        let r = U31Codec.decode(&mut data.into()).unwrap().expect("u31");
+        assert_eq!(r, (true, U31::max_value()));
+        let mut buf = BytesMut::with_capacity(4);
+        U31Codec.encode(r, &mut buf).unwrap();
+        assert_eq!(buf, data);
+    }
+
+    #[test]
+    fn u24() {
+        let data: &[u8] = &[255, 255, 255];
+        let r = U24Codec.decode(&mut data.into()).unwrap().expect("u24");
+        assert_eq!(r, U24::max_value());
+        let mut buf = BytesMut::with_capacity(3);
+        U24Codec.encode(r, &mut buf).unwrap();
+        assert_eq!(buf, data);
     }
 }
