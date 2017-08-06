@@ -1,6 +1,7 @@
 # Plasmodesmata
 
 [![Build Status](https://travis-ci.org/iovxw/plasmodesmata.svg?branch=master)](https://travis-ci.org/iovxw/plasmodesmata)
+[![Coverage Status](https://coveralls.io/repos/github/iovxw/plasmodesmata/badge.svg?branch=master)](https://coveralls.io/github/iovxw/plasmodesmata?branch=master)
 [![Github All Releases](https://img.shields.io/github/downloads/iovxw/plasmodesmata/total.svg)](https://github.com/iovxw/plasmodesmata/releases)
 [![License](https://img.shields.io/github/license/iovxw/plasmodesmata.svg)](https://github.com/iovxw/plasmodesmata/blob/master/UNLICENSE)
 

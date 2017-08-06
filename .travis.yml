@@ -1,3 +1,12 @@
 language: rust
+addons:
+  apt:
+    packages:
+      - libssl-dev
+cache: cargo
 rust:
   - nightly
+
+after_success: |
+  cargo install cargo-tarpaulin
+  cargo tarpaulin --ciserver travis-ci --coveralls $TRAVIS_JOB_ID
