@@ -15,6 +15,7 @@ macro_rules! try_some {
     }
 }
 
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Frame {
     // +---------------+
     // |Pad Length? (8)|
@@ -74,11 +75,7 @@ pub enum Frame {
     // |                        Value (32)                             |
     // +---------------------------------------------------------------+
     // ...
-    Settings {
-        identifier: U31,
-        ack: bool,
-        settings: Vec<Setting>,
-    },
+    Settings { ack: bool, settings: Vec<Setting> },
     // +---------------+
     // |Pad Length? (8)|
     // +-+-------------+-----------------------------------------------+
@@ -100,11 +97,7 @@ pub enum Frame {
     // |                      Opaque Data (64)                         |
     // |                                                               |
     // +---------------------------------------------------------------+
-    Ping {
-        identifier: U31,
-        ack: bool,
-        opaque_data: u64,
-    },
+    Ping { ack: bool, opaque_data: u64 },
     // +-+-------------------------------------------------------------+
     // |R|                  Last-Stream-ID (31)                        |
     // +-+-------------------------------------------------------------+
@@ -113,7 +106,6 @@ pub enum Frame {
     // |                  Additional Debug Data (*)                    |
     // +---------------------------------------------------------------+
     Goaway {
-        identifier: U31,
         last_stream_id: U31,
         error_code: ErrorCode,
         additional_debug_data: Vec<u8>,
@@ -143,6 +135,12 @@ pub enum Frame {
 
 pub struct FrameCodec {
     length: Option<U24>,
+}
+
+impl FrameCodec {
+    pub fn new() -> FrameCodec {
+        Self::default()
+    }
 }
 
 impl Default for FrameCodec {
@@ -277,14 +275,10 @@ impl Decoder for FrameCodec {
                 let n = payload.len() / 6;
                 let mut settings = Vec::with_capacity(n);
                 for _ in 0..n {
-                    let setting = SettingCodec.decode(src)?.unwrap();
+                    let setting = SettingCodec.decode(&mut payload)?.unwrap();
                     settings.push(setting);
                 }
-                Settings {
-                    identifier,
-                    ack,
-                    settings,
-                }
+                Settings { ack, settings }
             }
             0x5 => {
                 if identifier.as_u32() == 0x0 {
@@ -319,11 +313,7 @@ impl Decoder for FrameCodec {
                 }
                 let ack = flags & 0x1 != 0;
                 let opaque_data = BigEndian::read_u64(&payload);
-                Ping {
-                    identifier,
-                    ack,
-                    opaque_data,
-                }
+                Ping { ack, opaque_data }
             }
             0x7 => {
                 if identifier.as_u32() != 0x0 {
@@ -336,7 +326,6 @@ impl Decoder for FrameCodec {
                 let error_code = ErrorCodeCodec.decode(&mut payload)?.unwrap();
                 let additional_debug_data = Vec::from(&payload as &[u8]);
                 Goaway {
-                    identifier,
                     last_stream_id,
                     error_code,
                     additional_debug_data,
@@ -497,16 +486,12 @@ impl Encoder for FrameCodec {
                 U31Codec.encode((false, identifier), dst)?;
                 ErrorCodeCodec.encode(error_code, dst)?;
             }
-            Settings {
-                identifier,
-                ack,
-                settings,
-            } => {
+            Settings { ack, settings } => {
                 assert!(!(ack && !settings.is_empty()));
                 U24Codec.encode(U24::from(settings.len() as u32 * 6), dst)?;
                 dst.put_u8(0x4);
                 dst.put_u8(if ack { 0x1 } else { 0x0 });
-                U31Codec.encode((false, identifier), dst)?;
+                U31Codec.encode((false, U31::from(0)), dst)?;
                 for setting in settings {
                     SettingCodec.encode(setting, dst)?;
                 }
@@ -542,19 +527,14 @@ impl Encoder for FrameCodec {
                     pad_length.unwrap_or_default() as usize,
                 ));
             }
-            Ping {
-                identifier,
-                ack,
-                opaque_data,
-            } => {
+            Ping { ack, opaque_data } => {
                 U24Codec.encode(U24::from(8), dst)?;
                 dst.put_u8(0x6);
                 dst.put_u8(if ack { 0x1 } else { 0x0 });
-                U31Codec.encode((false, identifier), dst)?;
+                U31Codec.encode((false, U31::from(0)), dst)?;
                 dst.put_u64::<BigEndian>(opaque_data);
             }
             Goaway {
-                identifier,
                 last_stream_id,
                 error_code,
                 additional_debug_data,
@@ -563,7 +543,7 @@ impl Encoder for FrameCodec {
                 U24Codec.encode(length, dst)?;
                 dst.put_u8(0x7);
                 dst.put_u8(0x0);
-                U31Codec.encode((false, identifier), dst)?;
+                U31Codec.encode((false, U31::from(0)), dst)?;
                 U31Codec.encode((false, last_stream_id), dst)?;
                 ErrorCodeCodec.encode(error_code, dst)?;
                 dst.put_slice(&additional_debug_data);
@@ -717,7 +697,7 @@ mod test {
                 "setting",
             );
             assert_eq!(r, result);
-            let mut buf = BytesMut::with_capacity(6);
+            let mut buf = BytesMut::with_capacity(binary.len());
             SettingCodec.encode(r, &mut buf).unwrap();
             assert_eq!(buf, binary);
         }
@@ -727,8 +707,14 @@ mod test {
     fn setting_error() {
         let tests: &[(&[u8], ErrorCode)] =
             &[
-                (&[0x0, 0x4, 0xff, 0xff, 0xff, 0xff], ErrorCode::ProtocolError),
-                (&[0x0, 0x5, 0xff, 0xff, 0xff, 0xff], ErrorCode::ProtocolError),
+                (
+                    &[0x0, 0x4, 0xff, 0xff, 0xff, 0xff],
+                    ErrorCode::ProtocolError,
+                ),
+                (
+                    &[0x0, 0x5, 0xff, 0xff, 0xff, 0xff],
+                    ErrorCode::ProtocolError,
+                ),
                 (&[0x0, 0x5, 0x0, 0x0, 0x0, 0x0], ErrorCode::ProtocolError),
             ];
         for &(binary, error) in tests {
@@ -741,6 +727,156 @@ mod test {
             } else {
                 false
             });
+        }
+    }
+
+    #[test]
+    fn eat_padding() {
+        let tests: &[(&[u8], (u8, &[u8]))] = &[
+            (&[0, 10, 10, 10], (0, &[10, 10, 10])),
+            (&[2, 10, 0, 0], (2, &[10])),
+        ];
+        for &(binary, (padding, data)) in tests {
+            let mut buf = BytesMut::from(binary);
+            let r = super::eat_padding(&mut buf).unwrap();
+            assert_eq!(r, padding);
+            assert_eq!(&buf, data);
+        }
+    }
+
+    #[test]
+    fn eat_padding_error() {
+        let tests: &[(&[u8], ErrorCode)] = &[
+            (&[], ErrorCode::FrameSizeError),
+            (&[1, 0], ErrorCode::ProtocolError),
+            (&[5, 0], ErrorCode::ProtocolError),
+        ];
+        for &(binary, error) in tests {
+            let mut buf = BytesMut::from(binary);
+            let r = super::eat_padding(&mut buf).expect_err("eat_padding_error");
+            assert!(if let Error::Http(e) = r {
+                assert_eq!(e, error);
+                true
+            } else {
+                false
+            });
+        }
+    }
+
+    #[test]
+    fn frame() {
+        let tests: Vec<(Vec<u8>, Frame)> =
+            vec![
+                (
+                    vec![0, 0, 5, 0, 1 | 8, 0, 0, 0, 1, 2, 10, 10, 0, 0],
+                    Frame::Data {
+                        identifier: U31::from(1),
+                        end_stream: true,
+                        pad_length: Some(2),
+                        data: vec![10, 10],
+                    }
+                ),
+                (
+                    vec![0, 0, 7, 1, 1 | 4 | 8 | 32, 0, 0, 0, 1, 0, 0, 0, 0, 5, 3, 10],
+                    Frame::Headers {
+                        identifier: U31::from(1),
+                        end_stream: true,
+                        end_headers: true,
+                        pad_length: Some(0),
+                        e: Some(false),
+                        stream_dpendency: Some(U31::from(5)),
+                        weight: Some(3),
+                        header_block_fragment: vec![10],
+                    }
+                ),
+                (
+                    vec![0, 0, 5, 2, 0, 0, 0, 0, 1, 0, 0, 0, 5, 3],
+                    Frame::Priority {
+                        identifier: U31::from(1),
+                        e: false,
+                        stream_dpendency: U31::from(5),
+                        weight: 3,
+                    }
+                ),
+                (
+                    vec![0, 0, 4, 3, 0, 0, 0, 0, 1, 0, 0, 0, 0],
+                    Frame::RstStream {
+                        identifier: U31::from(1),
+                        error_code: ErrorCode::NoError,
+                    }
+                ),
+                (
+                    vec![0, 0, 0, 4, 1, 0, 0, 0, 0],
+                    Frame::Settings {
+                        ack: true,
+                        settings: vec![],
+                    }
+                ),
+                (
+                    vec![0, 0, 6, 4, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0],
+                    Frame::Settings {
+                        ack: false,
+                        settings: vec![Setting::HeaderTableSize(0)],
+                    }
+                ),
+                (
+                    vec![0, 0, 9, 5, 4 | 8, 0, 0, 0, 1, 2, 0, 0, 0, 5, 10, 10, 0, 0],
+                    Frame::PushPromise {
+                        identifier: U31::from(1),
+                        end_headers: true,
+                        pad_length: Some(2),
+                        promised_stream_id: U31::from(5),
+                        header_block_fragment: vec![10, 10],
+                    }
+                ),
+                (
+                    vec![0, 0, 8, 6, 1, 0, 0, 0, 0, 11, 11, 11, 11, 11, 11, 11, 11],
+                    Frame::Ping {
+                        ack: true,
+                        opaque_data: 795741901218843403,
+                    }
+                ),
+                (
+                    vec![0, 0, 9, 7, 0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 10],
+                    Frame::Goaway {
+                        last_stream_id: U31::from(5),
+                        error_code: ErrorCode::NoError,
+                        additional_debug_data: vec![10],
+                    }
+                ),
+                (
+                    vec![0, 0, 4, 8, 0, 0, 0, 0, 1, 0, 0, 0, 6],
+                    Frame::WindowUpdate {
+                        identifier: U31::from(1),
+                        window_size_increment: U31::from(6),
+                    }
+                ),
+                (
+                    vec![0, 0, 3, 9, 4, 0, 0, 0, 1, 10, 10, 10],
+                    Frame::Continuation {
+                        identifier: U31::from(1),
+                        end_headers: true,
+                        header_block_fragment: vec![10, 10, 10],
+                    }
+                ),
+                (
+                    vec![0, 0, 3, 10, 4, 0, 0, 0, 1, 10, 10, 10],
+                    Frame::Unknown {
+                        identifier: U31::from(1),
+                        kind: 10,
+                        flags: 4,
+                        payload: vec![10, 10, 10],
+                    }
+                ),
+            ];
+        for (binary, result) in tests {
+            let mut data: BytesMut = (&binary as &[u8]).into();
+            let r = FrameCodec::new().decode(&mut data).unwrap().expect("frame");
+            assert_eq!(data.len(), 0);
+            assert_eq!(r, result);
+            let mut buf = BytesMut::with_capacity(binary.len());
+            FrameCodec::new().encode(r, &mut buf).unwrap();
+            assert_eq!(buf, binary);
         }
     }
 }
