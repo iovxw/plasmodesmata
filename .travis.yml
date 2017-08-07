@@ -8,5 +8,5 @@ rust:
   - nightly
 
 after_success: |
-  cargo install cargo-tarpaulin
+  bash <(curl https://raw.githubusercontent.com/xd009642/tarpaulin/master/travis-install.sh)
   cargo tarpaulin --ciserver travis-ci --coveralls $TRAVIS_JOB_ID
