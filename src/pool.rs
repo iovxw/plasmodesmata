@@ -14,6 +14,7 @@ use http::Request;
 pub struct PoolHandle {
     addr: SocketAddr,
     handle: Handle,
+    task: Rc<RefCell<Option<::futures::task::Task>>>,
     pool: Rc<RefCell<VecDeque<h2c::Client<TcpStream, Bytes>>>>,
 }
 
@@ -25,6 +26,7 @@ impl H2ClientPool {
         let h = PoolHandle {
             addr: addr,
             handle: handle,
+            task: Rc::new(RefCell::new(None)),
             pool: Rc::new(RefCell::new(VecDeque::new())),
         };
         H2ClientPool(h)
@@ -39,6 +41,10 @@ impl Future for H2ClientPool {
     type Item = ();
     type Error = ();
     fn poll(&mut self) -> Poll<(), ()> {
+        if self.0.task.borrow().is_none() {
+            *self.0.task.borrow_mut() = Some(::futures::task::current());
+        }
+
         if Rc::strong_count(&self.0.pool) == 1 {
             let wired_strems: usize = self.0
                 .pool
@@ -91,9 +97,15 @@ impl PoolHandle {
     fn new_client<'a>(
         &self,
     ) -> impl Future<Item = h2c::Client<TcpStream, Bytes>, Error = h2::Error> + 'a {
+        let task = self.task.clone();
         TcpStream::connect(&self.addr, &self.handle)
             .map_err(Into::into)
-            .and_then(|socket| h2c::Client::handshake(socket))
+            .and_then(move |socket| {
+                if let Some(ref task) = *task.borrow() {
+                    task.notify();
+                }
+                h2c::Client::handshake(socket)
+            })
     }
 
     fn pop<'a>(&self) -> impl Future<Item = h2c::Client<TcpStream, Bytes>, Error = h2::Error> + 'a {
@@ -106,7 +118,7 @@ impl PoolHandle {
             };
 
             if client.poll_ready().unwrap().is_not_ready() {
-                await!(s.pop())
+                unimplemented!() //await!(s.pop())
             } else {
                 Ok(client)
             }
