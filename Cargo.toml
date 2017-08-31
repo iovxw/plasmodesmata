@@ -15,3 +15,4 @@ tokio-rustls = "0.2"
 futures-await = { git = 'https://github.com/alexcrichton/futures-await' }
 http = { git = "https://github.com/carllerche/http" }
 h2 = { git = "https://github.com/carllerche/h2", features = ["unstable"] }
+io-dump = { git = "https://github.com/carllerche/io-dump" }

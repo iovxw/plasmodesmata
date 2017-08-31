@@ -8,6 +8,7 @@ extern crate tokio_io;
 extern crate tokio_rustls;
 extern crate http;
 extern crate h2;
+extern crate io_dump;
 
 use std::net::SocketAddr;
 use std::collections::VecDeque;
@@ -72,7 +73,7 @@ fn client(listen_addr: SocketAddr, server_addr: SocketAddr) {
 fn client_handle(client: TcpStream, pool_handle: PoolHandle) -> Result<(usize, usize), h2::Error> {
     let req = http::Request::builder()
         .method(http::Method::CONNECT)
-        .uri("https://example.com")
+        .uri("https://iovxw.net")
         .body(())
         .unwrap();
     let (client_reader, client_writer) = client.split();
@@ -147,6 +148,7 @@ fn server(listen_addr: SocketAddr, server_addr: SocketAddr) {
 
     let done = listener.incoming().for_each(move |(client, client_addr)| {
         let handle2 = handle.clone();
+        let client = io_dump::Dump::to_stdout(client);
         let connection = h2s::Server::handshake(client)
             .and_then(move |conn| {
                 let handle = handle2.clone();
