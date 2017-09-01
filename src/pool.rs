@@ -58,7 +58,8 @@ impl Future for H2ClientPool {
             }
         }
 
-        for idx in 0..self.0.pool.borrow().len() {
+        let len = self.0.pool.borrow().len();
+        for idx in 0..len {
             let mut pool = self.0.pool.borrow_mut();
             let remove = {
                 let client = pool.get_mut(idx).unwrap();

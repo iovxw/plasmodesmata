@@ -51,8 +51,9 @@ fn client(listen_addr: SocketAddr, server_addr: SocketAddr) {
     println!("Proxying to: {}", server_addr);
 
     let pool = pool::H2ClientPool::new(lp.handle(), server_addr);
-    let done = listener.incoming().for_each(|(client, client_addr)| {
-        client_handle(client, pool.handle())
+    let pool_handle = pool.handle();
+    let done = listener.incoming().for_each(move |(client, client_addr)| {
+        client_handle(client, pool_handle.clone())
             .map(move |(client_to_server, server_to_client)| {
                 println!(
                     "{:?}: {}, {}",
@@ -66,6 +67,7 @@ fn client(listen_addr: SocketAddr, server_addr: SocketAddr) {
                 Ok(())
             })
     });
+    lp.handle().spawn(pool);
     lp.run(done).unwrap();
 }
 
@@ -77,8 +79,11 @@ fn client_handle(client: TcpStream, pool_handle: PoolHandle) -> Result<(usize, u
         .body(())
         .unwrap();
     let (client_reader, client_writer) = client.split();
+    println!("C: request");
     let mut stream = await!(pool_handle.request(req, false))?;
+    println!("C: request done");
     let (parts, body) = poll!(stream.poll_response())?.into_parts();
+    println!("CCCCC");
     if parts.status != http::StatusCode::OK {
         unimplemented!();
     }
@@ -152,7 +157,9 @@ fn server(listen_addr: SocketAddr, server_addr: SocketAddr) {
         let connection = h2s::Server::handshake(client)
             .and_then(move |conn| {
                 let handle = handle2.clone();
+                println!("S: handshake done");
                 conn.for_each(move |(request, stream)| {
+                    println!("SSSS");
                     server_handle(handle.clone(), request, stream)
                         .map(move |(client_to_server, server_to_client)| {
                             println!(
