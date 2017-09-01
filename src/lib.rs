@@ -75,7 +75,7 @@ fn client(listen_addr: SocketAddr, server_addr: SocketAddr) {
 fn client_handle(client: TcpStream, pool_handle: PoolHandle) -> Result<(usize, usize), h2::Error> {
     let req = http::Request::builder()
         .method(http::Method::CONNECT)
-        .uri("https://iovxw.net")
+        .uri("https://iovxw.net/")
         .body(())
         .unwrap();
     let (client_reader, client_writer) = client.split();
