@@ -11,9 +11,6 @@ extern crate h2;
 extern crate io_dump;
 
 use std::net::SocketAddr;
-use std::collections::VecDeque;
-use std::rc::Rc;
-use std::cell::RefCell;
 
 use futures::prelude::*;
 use tokio_core::net::{TcpListener, TcpStream};
@@ -80,7 +77,7 @@ fn client_handle(client: TcpStream, pool_handle: PoolHandle) -> Result<(usize, u
         .unwrap();
     let (client_reader, client_writer) = client.split();
     println!("C: request");
-    let mut stream = await!(pool_handle.request(req, false))?;
+    let mut stream = await!(pool_handle.send_request(req, false))?;
     println!("C: request done");
     let (parts, body) = poll!(stream.poll_response())?.into_parts();
     println!("CCCCC");

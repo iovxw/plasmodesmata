@@ -81,7 +81,7 @@ impl Future for H2ClientPool {
 }
 
 impl PoolHandle {
-    pub fn request<'a>(
+    pub fn send_request<'a>(
         &self,
         request: Request<()>,
         end_of_stream: bool,
@@ -89,7 +89,7 @@ impl PoolHandle {
         let s = self.clone();
         async_block! {
             let mut client = await!(s.pop())?;
-            let stream = client.request(request, end_of_stream)?;
+            let stream = client.send_request(request, end_of_stream)?;
             s.pool.borrow_mut().push_back(client);
             Ok(stream)
         }
