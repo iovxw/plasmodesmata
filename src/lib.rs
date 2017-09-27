@@ -42,6 +42,7 @@ macro_rules! poll {
 
 fn client(listen_addr: SocketAddr, server_addr: SocketAddr) {
     let mut lp = Core::new().unwrap();
+    let handle = lp.handle();
 
     let listener = TcpListener::bind(&listen_addr, &lp.handle()).unwrap();
     println!("Listening on: {}", listen_addr);
@@ -50,7 +51,7 @@ fn client(listen_addr: SocketAddr, server_addr: SocketAddr) {
     let pool = pool::H2ClientPool::new(lp.handle(), server_addr);
     let pool_handle = pool.handle();
     let done = listener.incoming().for_each(move |(client, client_addr)| {
-        client_handle(client, pool_handle.clone())
+        let c = client_handle(client, pool_handle.clone())
             .map(move |(client_to_server, server_to_client)| {
                 println!(
                     "{:?}: {}, {}",
@@ -62,7 +63,10 @@ fn client(listen_addr: SocketAddr, server_addr: SocketAddr) {
             .or_else(|e| {
                 println!("{:?}", e);
                 Ok(())
-            })
+            });
+
+        handle.spawn(c);
+        Ok(())
     });
     lp.handle().spawn(pool);
     lp.run(done).unwrap();
@@ -157,7 +161,7 @@ fn server(listen_addr: SocketAddr, server_addr: SocketAddr) {
                 println!("S: handshake done");
                 conn.for_each(move |(request, stream)| {
                     println!("SSSS");
-                    server_handle(handle.clone(), request, stream)
+                    let s = server_handle(handle.clone(), request, stream)
                         .map(move |(client_to_server, server_to_client)| {
                             println!(
                                 "{:?}: {}, {}",
@@ -169,8 +173,14 @@ fn server(listen_addr: SocketAddr, server_addr: SocketAddr) {
                         .or_else(|e: h2::Error| {
                             println!("{:?}", e);
                             Ok(())
-                        })
-                })
+                        });
+
+                    handle.spawn(s);
+                    Ok(())
+                }).and_then(move |_| {
+                        println!("Connection close: {}", client_addr);
+                        Ok(())
+                    })
             })
             .map_err(|e| println!("{:?}", e));
 
