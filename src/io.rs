@@ -25,7 +25,6 @@ pub fn copy_from_h2<
         counter += n;
     }
     await!(shutdown(dst))?;
-    println!("tcp remote close");
     Ok(counter)
 }
 

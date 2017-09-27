@@ -9,7 +9,7 @@ use h2;
 use pool::{H2ClientPool, PoolHandle};
 use io::{copy_from_h2, copy_to_h2, Socket};
 
-pub fn client(listen_addr: SocketAddr, server_addr: SocketAddr) {
+pub fn client(listen_addr: SocketAddr, server_domain: String, server_addr: SocketAddr) {
     let mut lp = Core::new().unwrap();
     let handle = lp.handle();
 
@@ -17,10 +17,10 @@ pub fn client(listen_addr: SocketAddr, server_addr: SocketAddr) {
     println!("Listening on: {}", listen_addr);
     println!("Proxying to: {}", server_addr);
 
-    let pool = H2ClientPool::new(lp.handle(), server_addr);
+    let pool = H2ClientPool::new(lp.handle(), server_domain.clone(), server_addr);
     let pool_handle = pool.handle();
     let done = listener.incoming().for_each(move |(client, client_addr)| {
-        let c = client_handle(client, pool_handle.clone())
+        let c = client_handle(client, &server_domain, pool_handle.clone())
             .map(move |(client_to_server, server_to_client)| {
                 println!(
                     "{:?}: {}, {}",
@@ -41,34 +41,26 @@ pub fn client(listen_addr: SocketAddr, server_addr: SocketAddr) {
     lp.run(done).unwrap();
 }
 
-#[async]
-fn client_handle(client: TcpStream, pool_handle: PoolHandle) -> Result<(usize, usize), h2::Error> {
+fn client_handle<'a>(
+    client: TcpStream,
+    server_domain: &str,
+    pool_handle: PoolHandle,
+) -> impl Future<Item = (usize, usize), Error = h2::Error> + 'a {
     let req = Request::builder()
         .method(Method::CONNECT)
-        .uri("https://iovxw.net/")
+        .uri(format!("https://{}/", server_domain).as_str())
         .body(())
         .unwrap();
-    let client = Socket::new(client);
-    let (client_reader, client_writer) = (client.clone(), client);
-    println!("C: request");
-    let mut stream = await!(pool_handle.send_request(req, false))?;
-    println!("C: request done");
-    let (parts, body) = poll!(stream.poll_response())?.into_parts();
-    println!("CCCCC");
-    if parts.status != StatusCode::OK {
-        unimplemented!();
+    async_block! {
+        let client = Socket::new(client);
+        let (client_reader, client_writer) = (client.clone(), client);
+        let mut stream = await!(pool_handle.send_request(req, false))?;
+        let (parts, body) = poll!(stream.poll_response())?.into_parts();
+        if parts.status != StatusCode::OK {
+            unimplemented!();
+        }
+        let server_to_client = copy_from_h2(body, client_writer);
+        let client_to_server = copy_to_h2(client_reader, stream);
+        await!(client_to_server.join(server_to_client))
     }
-    let server_to_client = copy_from_h2(body, client_writer);
-    let client_to_server = copy_to_h2(client_reader, stream);
-    await!(
-        client_to_server
-            .map(|x| {
-                println!("C: c-s done");
-                x
-            })
-            .join(server_to_client.map(|x| {
-                println!("C: s-c done");
-                x
-            }))
-    )
 }

@@ -2,6 +2,7 @@ use std::net::SocketAddr;
 use std::collections::VecDeque;
 use std::rc::Rc;
 use std::cell::RefCell;
+use std::sync::Arc;
 
 use futures::prelude::*;
 use tokio_core::net::TcpStream;
@@ -9,23 +10,37 @@ use tokio_core::reactor::Handle;
 use bytes::Bytes;
 use h2::{self, client as h2c};
 use http::Request;
+use rustls::{self, Session};
+use tokio_rustls::{TlsStream, ClientConfigExt};
+use webpki_roots::TLS_SERVER_ROOTS;
+
+const ALPN_H2: &str = "h2";
 
 #[derive(Clone)]
 pub struct PoolHandle {
+    domain: Rc<String>,
     addr: SocketAddr,
+    tls_config: Arc<rustls::ClientConfig>,
     handle: Handle,
     task: Rc<RefCell<Option<::futures::task::Task>>>,
-    pool: Rc<RefCell<VecDeque<h2c::Client<TcpStream, Bytes>>>>,
+    pool: Rc<RefCell<VecDeque<h2c::Client<TlsStream<TcpStream, rustls::ClientSession>, Bytes>>>>,
 }
 
 #[derive(Clone)]
 pub struct H2ClientPool(PoolHandle);
 
 impl H2ClientPool {
-    pub fn new(handle: Handle, addr: SocketAddr) -> H2ClientPool {
+    pub fn new(handle: Handle, domain: String, addr: SocketAddr) -> H2ClientPool {
+        let mut config = rustls::ClientConfig::new();
+        config.root_store.add_server_trust_anchors(
+            &TLS_SERVER_ROOTS,
+        );
+        config.alpn_protocols.push(ALPN_H2.to_owned());
         let h = PoolHandle {
+            domain: Rc::new(domain),
             addr: addr,
             handle: handle,
+            tls_config: Arc::new(config),
             task: Rc::new(RefCell::new(None)),
             pool: Rc::new(RefCell::new(VecDeque::new())),
         };
@@ -97,11 +112,28 @@ impl PoolHandle {
 
     fn new_client<'a>(
         &self,
-    ) -> impl Future<Item = h2c::Client<TcpStream, Bytes>, Error = h2::Error> + 'a {
+    ) -> impl Future<
+        Item = h2c::Client<TlsStream<TcpStream, rustls::ClientSession>, Bytes>,
+        Error = h2::Error,
+    >
+                 + 'a {
         let task = self.task.clone();
+        let domain = self.domain.clone();
+        let tls_config = self.tls_config.clone();
         TcpStream::connect(&self.addr, &self.handle)
-            .map_err(Into::into)
+            .map_err(h2::Error::from)
+            .and_then(move |tcp| {
+                tls_config.connect_async(&domain, tcp).map_err(Into::into)
+            })
             .and_then(move |socket| {
+                let negotiated_protcol = {
+                    let (_, session) = socket.get_ref();
+                    session.get_alpn_protocol()
+                };
+                if let Some(ALPN_H2) = negotiated_protcol.as_ref().map(|x| &**x) {
+                } else {
+                    println!("not a http2 server!");
+                }
                 if let Some(ref task) = *task.borrow() {
                     task.notify();
                 }
@@ -109,7 +141,13 @@ impl PoolHandle {
             })
     }
 
-    fn pop<'a>(&self) -> impl Future<Item = h2c::Client<TcpStream, Bytes>, Error = h2::Error> + 'a {
+    fn pop<'a>(
+        &self,
+    ) -> impl Future<
+        Item = h2c::Client<TlsStream<TcpStream, rustls::ClientSession>, Bytes>,
+        Error = h2::Error,
+    >
+                 + 'a {
         let s = self.clone();
         async_block!{
             let client = s.pool.borrow_mut().pop_front();
