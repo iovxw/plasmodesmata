@@ -1,15 +1,22 @@
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 use http::{Request, Method, StatusCode};
 use futures::prelude::*;
 use tokio_core::net::{TcpListener, TcpStream};
 use tokio_core::reactor::Core;
 use h2;
+use rustls;
 
 use pool::{H2ClientPool, PoolHandle};
 use io::{copy_from_h2, copy_to_h2, Socket};
 
-pub fn client(listen_addr: SocketAddr, server_domain: String, server_addr: SocketAddr) {
+pub fn client(
+    listen_addr: SocketAddr,
+    tls_config: Arc<rustls::ClientConfig>,
+    server_domain: String,
+    server_addr: SocketAddr,
+) {
     let mut lp = Core::new().unwrap();
     let handle = lp.handle();
 
@@ -17,7 +24,7 @@ pub fn client(listen_addr: SocketAddr, server_domain: String, server_addr: Socke
     println!("Listening on: {}", listen_addr);
     println!("Proxying to: {}", server_addr);
 
-    let pool = H2ClientPool::new(lp.handle(), server_domain.clone(), server_addr);
+    let pool = H2ClientPool::new(lp.handle(), tls_config, server_domain.clone(), server_addr);
     let pool_handle = pool.handle();
     let done = listener.incoming().for_each(move |(client, client_addr)| {
         let c = client_handle(client, &server_domain, pool_handle.clone())

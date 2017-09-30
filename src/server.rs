@@ -12,18 +12,15 @@ use tokio_rustls::ServerConfigExt;
 
 use io::{copy_from_h2, copy_to_h2, Socket};
 
-const ALPN_H2: &str = "h2";
+use super::ALPN_H2;
 
 pub fn server(
     listen_addr: SocketAddr,
-    mut tls_config: rustls::ServerConfig,
+    tls_config: Arc<rustls::ServerConfig>,
     server_addr: SocketAddr,
 ) {
     let mut lp = Core::new().unwrap();
     let handle = lp.handle();
-
-    tls_config.alpn_protocols.push(ALPN_H2.to_owned());
-    let tls_config = Arc::new(tls_config);
 
     let listener = TcpListener::bind(&listen_addr, &lp.handle()).unwrap();
     println!("Listening on: {}", listen_addr);

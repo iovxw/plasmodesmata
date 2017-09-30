@@ -11,9 +11,17 @@ extern crate tokio_rustls;
 extern crate http;
 extern crate h2;
 extern crate webpki_roots;
+extern crate structopt;
+#[macro_use]
+extern crate structopt_derive;
 
 use std::fs::File;
 use std::io::{Read, BufReader};
+use std::sync::Arc;
+use std::net::SocketAddr;
+
+use webpki_roots::TLS_SERVER_ROOTS;
+use structopt::StructOpt;
 
 #[macro_use]
 mod macros;
@@ -24,42 +32,99 @@ use server::server;
 mod pool;
 mod io;
 
-fn main() {
-    let client_addr = "127.0.0.1:3345".parse().unwrap();
-    let server_addr = "127.0.0.1:3346".parse().unwrap();
-    let target_addr = "127.0.0.1:8080".parse().unwrap();
+const ALPN_H2: &str = "h2";
 
-    if std::env::args().count() == 1 {
-        client(client_addr, "localhost.iovxw.net".into(), server_addr)
-    } else {
-        let mut server_tls_config = rustls::ServerConfig::new();
-        let certs = load_certs("domain.cer");
-        let privkey = load_private_key("domain.key");
-        let ocsp = load_ocsp(&None);
-        server_tls_config.set_single_cert_with_ocsp_and_sct(certs, privkey, ocsp, vec![]);
-        server(server_addr, server_tls_config, target_addr)
+#[derive(StructOpt)]
+#[structopt(name = "plasmodesmata", about = "A http2 tunnel")]
+enum Command {
+    #[structopt(name = "client")]
+    Client {
+        #[structopt(short = "l", help = "Local address")]
+        local: String,
+        #[structopt(short = "r", help = "Remote address")]
+        remote: String,
+        #[structopt(short = "d", help = "Remote domain")]
+        domain: String,
+    },
+    #[structopt(name = "server")]
+    Server {
+        #[structopt(short = "l", help = "Local address")]
+        local: String,
+        #[structopt(short = "r", help = "Remote address")]
+        remote: String,
+        #[structopt(short = "c", help = "Specify certificate file")]
+        certificate: String,
+        #[structopt(short = "k", help = "Specify certificate private key")]
+        key: String,
+    },
+}
+
+fn main() {
+    let cmd = Command::from_args();
+    match cmd {
+        Command::Client {
+            local,
+            remote,
+            domain,
+        } => {
+            let local_addr: SocketAddr = local.parse().expect(
+                "Local address is not a valid IP address",
+            );
+            // FIXME: resolve DNS
+            let server_addr: SocketAddr = remote.parse().expect(
+                "Server address is not a valid IP address",
+            );
+            let mut tls_config = rustls::ClientConfig::new();
+            tls_config.root_store.add_server_trust_anchors(
+                &TLS_SERVER_ROOTS,
+            );
+            tls_config.alpn_protocols.push(ALPN_H2.to_owned());
+            let tls_config = Arc::new(tls_config);
+            client(local_addr, tls_config, domain, server_addr)
+        }
+        Command::Server {
+            local,
+            remote,
+            certificate,
+            key,
+        } => {
+            let local_addr: SocketAddr = local.parse().expect(
+                "Local address is not a valid IP address",
+            );
+            let server_addr: SocketAddr = remote.parse().expect(
+                "Server address is not a valid IP address",
+            );
+            let mut tls_config = rustls::ServerConfig::new();
+            tls_config.alpn_protocols.push(ALPN_H2.to_owned());
+            let certs = load_certs(&certificate);
+            let privkey = load_private_key(&key);
+            let ocsp = load_ocsp(&None);
+            tls_config.set_single_cert_with_ocsp_and_sct(certs, privkey, ocsp, vec![]);
+            let tls_config = Arc::new(tls_config);
+            server(local_addr, tls_config, server_addr);
+        }
     }
 }
 
 fn load_certs(filename: &str) -> Vec<rustls::Certificate> {
-    let certfile = File::open(filename).expect("cannot open certificate file");
+    let certfile = File::open(filename).expect("Cannot open certificate file");
     let mut reader = BufReader::new(certfile);
     rustls::internal::pemfile::certs(&mut reader).unwrap()
 }
 
 fn load_private_key(filename: &str) -> rustls::PrivateKey {
     let rsa_keys = {
-        let keyfile = File::open(filename).expect("cannot open private key file");
+        let keyfile = File::open(filename).expect("Cannot open private key file");
         let mut reader = BufReader::new(keyfile);
         rustls::internal::pemfile::rsa_private_keys(&mut reader)
-            .expect("file contains invalid rsa private key")
+            .expect("File contains invalid rsa private key")
     };
 
     let pkcs8_keys = {
-        let keyfile = File::open(filename).expect("cannot open private key file");
+        let keyfile = File::open(filename).expect("Cannot open private key file");
         let mut reader = BufReader::new(keyfile);
         rustls::internal::pemfile::pkcs8_private_keys(&mut reader).expect(
-            "file contains invalid pkcs8 private key (encrypted keys not supported)",
+            "File contains invalid pkcs8 private key (encrypted keys not supported)",
         )
     };
 
@@ -77,7 +142,7 @@ fn load_ocsp(filename: &Option<String>) -> Vec<u8> {
 
     if let &Some(ref name) = filename {
         File::open(name)
-            .expect("cannot open ocsp file")
+            .expect("Cannot open ocsp file")
             .read_to_end(&mut ret)
             .unwrap();
     }

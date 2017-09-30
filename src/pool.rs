@@ -12,9 +12,8 @@ use h2::{self, client as h2c};
 use http::Request;
 use rustls::{self, Session};
 use tokio_rustls::{TlsStream, ClientConfigExt};
-use webpki_roots::TLS_SERVER_ROOTS;
 
-const ALPN_H2: &str = "h2";
+use super::ALPN_H2;
 
 #[derive(Clone)]
 pub struct PoolHandle {
@@ -30,17 +29,17 @@ pub struct PoolHandle {
 pub struct H2ClientPool(PoolHandle);
 
 impl H2ClientPool {
-    pub fn new(handle: Handle, domain: String, addr: SocketAddr) -> H2ClientPool {
-        let mut config = rustls::ClientConfig::new();
-        config.root_store.add_server_trust_anchors(
-            &TLS_SERVER_ROOTS,
-        );
-        config.alpn_protocols.push(ALPN_H2.to_owned());
+    pub fn new(
+        handle: Handle,
+        tls_config: Arc<rustls::ClientConfig>,
+        domain: String,
+        addr: SocketAddr,
+    ) -> H2ClientPool {
         let h = PoolHandle {
             domain: Rc::new(domain),
             addr: addr,
             handle: handle,
-            tls_config: Arc::new(config),
+            tls_config: tls_config,
             task: Rc::new(RefCell::new(None)),
             pool: Rc::new(RefCell::new(VecDeque::new())),
         };
