@@ -14,7 +14,7 @@ after_success: |
   bash <(curl https://raw.githubusercontent.com/xd009642/tarpaulin/master/travis-install.sh)
   cargo tarpaulin --ciserver travis-ci --coveralls $TRAVIS_JOB_ID
 before_deploy: |-
-  NAME=$(echo ${TRAVIS_REPO_SLUG} | cut -d "|" -f2)
+  NAME=$(echo ${TRAVIS_REPO_SLUG} | cut -d "/" -f2)
   export NAME
   if [ $TRAVIS_OS_NAME = linux ]
   then
@@ -33,5 +33,4 @@ deploy:
   file: "${NAME}-${TRAVIS_TAG}-${TRAVIS_OS_NAME}.*"
   skip_cleanup: true
   on:
-    repo: iovxw/plasmodesmata
     tags: true
