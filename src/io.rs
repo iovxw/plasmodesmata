@@ -99,3 +99,59 @@ impl AsyncWrite for Socket {
         Ok(().into())
     }
 }
+
+#[cfg(test)]
+mod test {
+    use std::io::Cursor;
+    use std::rc::Rc;
+    use std::cell::RefCell;
+
+    use futures::prelude::*;
+    use futures::stream::iter_ok;
+
+    use super::*;
+
+    #[derive(Clone)]
+    struct Dst(Rc<RefCell<Cursor<Vec<u8>>>>);
+    impl Write for Dst {
+        fn write(&mut self, buf: &[u8]) -> ::std::io::Result<usize> {
+            self.0.borrow_mut().write(buf)
+        }
+        fn flush(&mut self) -> ::std::io::Result<()> {
+            self.0.borrow_mut().flush()
+        }
+    }
+    impl AsyncWrite for Dst {
+        fn shutdown(&mut self) -> Poll<(), ::std::io::Error> {
+            Ok(().into())
+        }
+    }
+    impl SendData<Bytes> for Dst {
+        fn send_data(&mut self, data: Bytes, _end_of_stream: bool) -> Result<(), h2::Error> {
+            self.0.borrow_mut().get_mut().extend(data);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test_copy_from_h2() {
+        let dst = Dst(Rc::new(RefCell::new(Cursor::new(Vec::new()))));
+        let src = iter_ok(vec![
+            Bytes::from("123"),
+            Bytes::from("456"),
+            Bytes::from("789"),
+        ]);
+        let r = copy_from_h2(src, dst.clone()).wait().unwrap();
+        assert_eq!(r, 9);
+        assert_eq!(dst.0.borrow().get_ref(), b"123456789");
+    }
+
+    #[test]
+    fn test_copy_to_h2() {
+        let dst = Dst(Rc::new(RefCell::new(Cursor::new(Vec::new()))));
+        let src: &[u8] = b"123456789";
+        let r = copy_to_h2(src, dst.clone()).wait().unwrap();
+        assert_eq!(r, 9);
+        assert_eq!(dst.0.borrow().get_ref(), b"123456789");
+    }
+}
