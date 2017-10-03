@@ -49,7 +49,7 @@ pub fn copy_to_h2<R: AsyncRead + 'static, H: SendData<Bytes> + 'static>(
     mut dst: H,
 ) -> Result<usize, h2::Error> {
     let mut counter = 0;
-    let mut buf = Vec::with_capacity(1024);
+    let mut buf = Vec::with_capacity(2048);
     loop {
         let n = poll!(src.read_buf(&mut buf))?;
         if n == 0 {
