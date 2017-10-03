@@ -5,7 +5,7 @@ use std::net::Shutdown;
 use futures::prelude::*;
 use tokio_io::{AsyncRead, AsyncWrite};
 use tokio_io::io::shutdown;
-use bytes::{BytesMut, Bytes, IntoBuf};
+use bytes::{Bytes, IntoBuf};
 use h2::{self, server as h2s, client as h2c};
 use tokio_core::net::TcpStream;
 
@@ -49,14 +49,14 @@ pub fn copy_to_h2<R: AsyncRead + 'static, H: SendData<Bytes> + 'static>(
     mut dst: H,
 ) -> Result<usize, h2::Error> {
     let mut counter = 0;
-    let mut buf = BytesMut::with_capacity(1024);
+    let mut buf = Vec::with_capacity(1024);
     loop {
         let n = poll!(src.read_buf(&mut buf))?;
         if n == 0 {
-            dst.send_data(buf.take().freeze(), true)?;
+            dst.send_data(Bytes::from(&buf[..n]), true)?;
             break;
         } else {
-            dst.send_data(buf.take().freeze(), false)?;
+            dst.send_data(Bytes::from(&buf[..n]), false)?;
         }
         counter += n;
     }
