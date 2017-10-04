@@ -5,9 +5,11 @@ use std::net::Shutdown;
 use futures::prelude::*;
 use tokio_io::{AsyncRead, AsyncWrite};
 use tokio_io::io::shutdown;
-use bytes::{Bytes, IntoBuf};
+use bytes::{BytesMut, Bytes, BufMut, IntoBuf};
 use h2::{self, server as h2s, client as h2c};
 use tokio_core::net::TcpStream;
+
+const BUF_SIZE: usize = 2048;
 
 #[async]
 pub fn copy_from_h2<
@@ -49,16 +51,20 @@ pub fn copy_to_h2<R: AsyncRead + 'static, H: SendData<Bytes> + 'static>(
     mut dst: H,
 ) -> Result<usize, h2::Error> {
     let mut counter = 0;
-    let mut buf = Vec::with_capacity(2048);
+    let mut buf = BytesMut::with_capacity(BUF_SIZE);
     loop {
         let n = poll!(src.read_buf(&mut buf))?;
         if n == 0 {
-            dst.send_data(Bytes::from(&buf[..n]), true)?;
+            dst.send_data(buf.take().freeze(), true)?;
             break;
         } else {
-            dst.send_data(Bytes::from(&buf[..n]), false)?;
+            dst.send_data(buf.take().freeze(), false)?;
         }
         counter += n;
+        let rem = buf.remaining_mut();
+        if rem < BUF_SIZE {
+            buf.reserve(BUF_SIZE - rem);
+        }
     }
     Ok(counter)
 }
