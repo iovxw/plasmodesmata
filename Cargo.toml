@@ -15,6 +15,6 @@ tokio-rustls = "0.4"
 webpki-roots = "0.13"
 structopt = "0.1"
 structopt-derive = "0.1"
+http = "0.1"
 futures-await = { git = 'https://github.com/alexcrichton/futures-await' }
-http = { git = "https://github.com/carllerche/http" }
 h2 = { git = "https://github.com/carllerche/h2", features = ["unstable"] }
