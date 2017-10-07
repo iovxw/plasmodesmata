@@ -30,23 +30,44 @@ pub fn copy_from_h2<
     Ok(counter)
 }
 
-pub trait SendData<B: IntoBuf> {
+pub trait H2Stream<B: IntoBuf> {
+    fn reserve_capacity(&mut self, capacity: usize);
+    fn capacity(&self) -> usize;
+    fn poll_capacity(&mut self) -> Poll<Option<usize>, h2::Error>;
     fn send_data(&mut self, data: B, end_of_stream: bool) -> Result<(), h2::Error>;
 }
 
-impl<B: IntoBuf> SendData<B> for h2c::Stream<B> {
+impl<B: IntoBuf> H2Stream<B> for h2c::Stream<B> {
+    fn reserve_capacity(&mut self, capacity: usize) {
+        h2c::Stream::reserve_capacity(self, capacity)
+    }
+    fn capacity(&self) -> usize {
+        h2c::Stream::capacity(self)
+    }
+    fn poll_capacity(&mut self) -> Poll<Option<usize>, h2::Error> {
+        h2c::Stream::poll_capacity(self)
+    }
     fn send_data(&mut self, data: B, end_of_stream: bool) -> Result<(), h2::Error> {
         h2c::Stream::send_data(self, data, end_of_stream)
     }
 }
-impl<B: IntoBuf> SendData<B> for h2s::Stream<B> {
+impl<B: IntoBuf> H2Stream<B> for h2s::Stream<B> {
+    fn reserve_capacity(&mut self, capacity: usize) {
+        h2s::Stream::reserve_capacity(self, capacity)
+    }
+    fn capacity(&self) -> usize {
+        h2s::Stream::capacity(self)
+    }
+    fn poll_capacity(&mut self) -> Poll<Option<usize>, h2::Error> {
+        h2s::Stream::poll_capacity(self)
+    }
     fn send_data(&mut self, data: B, end_of_stream: bool) -> Result<(), h2::Error> {
         h2s::Stream::send_data(self, data, end_of_stream)
     }
 }
 
 #[async]
-pub fn copy_to_h2<R: AsyncRead + 'static, H: SendData<Bytes> + 'static>(
+pub fn copy_to_h2<R: AsyncRead + 'static, H: H2Stream<Bytes> + 'static>(
     mut src: R,
     mut dst: H,
 ) -> Result<usize, h2::Error> {
@@ -58,7 +79,19 @@ pub fn copy_to_h2<R: AsyncRead + 'static, H: SendData<Bytes> + 'static>(
             dst.send_data(buf.take().freeze(), true)?;
             break;
         } else {
-            dst.send_data(buf.take().freeze(), false)?;
+            loop {
+                dst.reserve_capacity(buf.len());
+                let cap = dst.capacity();
+                if cap == 0 {
+                    poll!(dst.poll_capacity())?; // TODO: handle value
+                    continue;
+                }
+                let chunk = buf.split_to(cap).freeze();
+                dst.send_data(chunk, false)?;
+                if buf.is_empty() {
+                    break;
+                }
+            }
         }
         counter += n;
         let rem = buf.remaining_mut();
@@ -132,7 +165,14 @@ mod test {
             Ok(().into())
         }
     }
-    impl SendData<Bytes> for Dst {
+    impl H2Stream<Bytes> for Dst {
+        fn reserve_capacity(&mut self, _capacity: usize) {}
+        fn capacity(&self) -> usize {
+            ::std::usize::MAX
+        }
+        fn poll_capacity(&mut self) -> Poll<Option<usize>, h2::Error> {
+            Ok(Async::Ready(Some(self.capacity())))
+        }
         fn send_data(&mut self, data: Bytes, _end_of_stream: bool) -> Result<(), h2::Error> {
             self.0.borrow_mut().get_mut().extend(data);
             Ok(())
