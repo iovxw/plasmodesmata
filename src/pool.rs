@@ -99,7 +99,7 @@ impl H2ClientPool {
                 None => await!(s.new_client())?,
             };
 
-            if client.poll_ready().unwrap().is_not_ready() {
+            if client.poll_ready().is_err() {
                 unimplemented!() //await!(s.pop())
             } else {
                 Ok(client)

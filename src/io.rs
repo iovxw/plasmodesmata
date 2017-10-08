@@ -166,9 +166,11 @@ mod test {
         }
     }
     impl H2Stream<Bytes> for Dst {
-        fn reserve_capacity(&mut self, _capacity: usize) {}
+        fn reserve_capacity(&mut self, capacity: usize) {
+            self.0.borrow_mut().get_mut().reserve(capacity)
+        }
         fn capacity(&self) -> usize {
-            ::std::usize::MAX
+            self.0.borrow().get_ref().capacity()
         }
         fn poll_capacity(&mut self) -> Poll<Option<usize>, h2::Error> {
             Ok(Async::Ready(Some(self.capacity())))
