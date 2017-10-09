@@ -80,14 +80,19 @@ pub fn copy_to_h2<R: AsyncRead + 'static, H: H2Stream<Bytes> + 'static>(
             break;
         } else {
             loop {
-                dst.reserve_capacity(buf.len());
-                let cap = dst.capacity();
-                if cap == 0 {
-                    poll!(dst.poll_capacity())?; // TODO: handle value
-                    continue;
+                let dst_cap = dst.capacity();
+                let src_len = buf.len();
+                if src_len > dst_cap {
+                    dst.reserve_capacity(src_len);
+                    if dst_cap == 0 {
+                        poll!(dst.poll_capacity())?; // TODO: handle value
+                        continue;
+                    }
+                    let chunk = buf.split_to(dst_cap).freeze();
+                    dst.send_data(chunk, false)?;
+                } else {
+                    dst.send_data(buf.take().freeze(), false)?;
                 }
-                let chunk = buf.split_to(cap).freeze();
-                dst.send_data(chunk, false)?;
                 if buf.is_empty() {
                     break;
                 }
@@ -192,6 +197,13 @@ mod test {
         let r = copy_from_h2(src, dst.clone()).wait().unwrap();
         assert_eq!(r, 9);
         assert_eq!(dst.0.borrow().get_ref(), b"123456789");
+
+        let data: &[u8] = &[0; BUF_SIZE * 2];
+        let dst = Dst(Rc::new(RefCell::new(Cursor::new(Vec::new()))));
+        let src = iter_ok(vec![Bytes::from(data)]);
+        let r = copy_from_h2(src, dst.clone()).wait().unwrap();
+        assert_eq!(r, data.len());
+        assert_eq!(dst.0.borrow().get_ref().as_slice(), data);
     }
 
     #[test]
@@ -201,5 +213,12 @@ mod test {
         let r = copy_to_h2(src, dst.clone()).wait().unwrap();
         assert_eq!(r, 9);
         assert_eq!(dst.0.borrow().get_ref(), b"123456789");
+
+        let data: &[u8] = &[0; BUF_SIZE * 2];
+        let dst = Dst(Rc::new(RefCell::new(Cursor::new(Vec::new()))));
+        let src: &[u8] = data;
+        let r = copy_to_h2(src, dst.clone()).wait().unwrap();
+        assert_eq!(r, data.len());
+        assert_eq!(dst.0.borrow().get_ref().as_slice(), data);
     }
 }
