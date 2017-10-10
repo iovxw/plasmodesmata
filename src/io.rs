@@ -5,26 +5,55 @@ use std::net::Shutdown;
 use futures::prelude::*;
 use tokio_io::{AsyncRead, AsyncWrite};
 use tokio_io::io::shutdown;
-use bytes::{BytesMut, Bytes, BufMut, IntoBuf};
+use bytes::{BytesMut, Bytes, Buf, BufMut, IntoBuf};
 use h2::{self, server as h2s, client as h2c};
 use tokio_core::net::TcpStream;
 
 const BUF_SIZE: usize = 2048;
 
+pub trait H2Body: Stream<Item = Bytes, Error = h2::Error> {
+    fn release_capacity(&mut self) -> Box<H2ReleaseCapacity>;
+}
+impl H2Body for h2c::Body<Bytes> {
+    fn release_capacity(&mut self) -> Box<H2ReleaseCapacity> {
+        Box::new(h2c::Body::release_capacity(self).clone())
+    }
+}
+impl H2Body for h2s::Body<Bytes> {
+    fn release_capacity(&mut self) -> Box<H2ReleaseCapacity> {
+        Box::new(h2s::Body::release_capacity(self).clone())
+    }
+}
+
+pub trait H2ReleaseCapacity {
+    fn release_capacity(&mut self, sz: usize) -> Result<(), h2::Error>;
+}
+impl H2ReleaseCapacity for h2c::ReleaseCapacity<Bytes> {
+    fn release_capacity(&mut self, sz: usize) -> Result<(), h2::Error> {
+        h2c::ReleaseCapacity::release_capacity(self, sz)
+    }
+}
+impl H2ReleaseCapacity for h2s::ReleaseCapacity<Bytes> {
+    fn release_capacity(&mut self, sz: usize) -> Result<(), h2::Error> {
+        h2s::ReleaseCapacity::release_capacity(self, sz)
+    }
+}
+
 #[async]
-pub fn copy_from_h2<
-    W: AsyncWrite + 'static,
-    B: Stream<Item = Bytes, Error = h2::Error> + 'static,
->(
-    src: B,
+pub fn copy_from_h2<W: AsyncWrite + 'static, B: H2Body + 'static>(
+    mut src: B,
     mut dst: W,
 ) -> Result<usize, h2::Error> {
     let mut counter = 0;
+    let mut rc_handle = src.release_capacity();
     #[async]
     for buf in src {
         let mut buf = buf.into_buf();
-        let n = poll!(dst.write_buf(&mut buf))?;
-        counter += n;
+        while buf.remaining() != 0 {
+            let n = poll!(dst.write_buf(&mut buf))?;
+            rc_handle.release_capacity(n)?;
+            counter += n;
+        }
     }
     await!(shutdown(dst))?;
     Ok(counter)
@@ -76,10 +105,10 @@ pub fn copy_to_h2<R: AsyncRead + 'static, H: H2Stream<Bytes> + 'static>(
     loop {
         let n = poll!(src.read_buf(&mut buf))?;
         if n == 0 {
-            dst.send_data(buf.take().freeze(), true)?;
+            dst.send_data(Bytes::new(), true)?;
             break;
         } else {
-            loop {
+            while !buf.is_empty() {
                 let dst_cap = dst.capacity();
                 let src_len = buf.len();
                 if src_len > dst_cap {
@@ -99,9 +128,6 @@ pub fn copy_to_h2<R: AsyncRead + 'static, H: H2Stream<Bytes> + 'static>(
                     dst.send_data(chunk, false)?;
                 } else {
                     dst.send_data(buf.take().freeze(), false)?;
-                }
-                if buf.is_empty() {
-                    break;
                 }
             }
         }
@@ -192,22 +218,41 @@ mod test {
             Ok(())
         }
     }
+    struct Src<T: Stream<Item = Bytes, Error = h2::Error>>(T);
+    impl<T: Stream<Item = Bytes, Error = h2::Error>> Stream for Src<T> {
+        type Item = T::Item;
+        type Error = T::Error;
+        fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+            self.0.poll()
+        }
+    }
+    struct SrcReleaseCapacity;
+    impl<T: Stream<Item = Bytes, Error = h2::Error>> H2Body for Src<T> {
+        fn release_capacity(&mut self) -> Box<H2ReleaseCapacity> {
+            Box::new(SrcReleaseCapacity)
+        }
+    }
+    impl H2ReleaseCapacity for SrcReleaseCapacity {
+        fn release_capacity(&mut self, _sz: usize) -> Result<(), h2::Error> {
+            Ok(())
+        }
+    }
 
     #[test]
     fn test_copy_from_h2() {
         let dst = Dst(Rc::new(RefCell::new(Cursor::new(Vec::new()))));
-        let src = iter_ok(vec![
+        let src = Src(iter_ok(vec![
             Bytes::from("123"),
             Bytes::from("456"),
             Bytes::from("789"),
-        ]);
+        ]));
         let r = copy_from_h2(src, dst.clone()).wait().unwrap();
         assert_eq!(r, 9);
         assert_eq!(dst.0.borrow().get_ref(), b"123456789");
 
         let data: &[u8] = &[0; BUF_SIZE * 2];
         let dst = Dst(Rc::new(RefCell::new(Cursor::new(Vec::new()))));
-        let src = iter_ok(vec![Bytes::from(data)]);
+        let src = Src(iter_ok(vec![Bytes::from(data)]));
         let r = copy_from_h2(src, dst.clone()).wait().unwrap();
         assert_eq!(r, data.len());
         assert_eq!(dst.0.borrow().get_ref().as_slice(), data);
