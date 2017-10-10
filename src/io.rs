@@ -85,7 +85,14 @@ pub fn copy_to_h2<R: AsyncRead + 'static, H: H2Stream<Bytes> + 'static>(
                 if src_len > dst_cap {
                     dst.reserve_capacity(src_len);
                     if dst_cap == 0 {
-                        poll!(dst.poll_capacity())?; // TODO: handle value
+                        let n = poll!(dst.poll_capacity())?;
+                        if let Some(n) = n {
+                            if n < src_len {
+                                // FIXME:
+                                // https://github.com/carllerche/h2/blob/4c7ecf15/src/server.rs#L358
+                                eprintln!("BUG!");
+                            }
+                        }
                         continue;
                     }
                     let chunk = buf.split_to(dst_cap).freeze();
