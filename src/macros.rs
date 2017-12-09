@@ -11,7 +11,7 @@ macro_rules! poll {
                     break ::futures::__rt::Err(e)
                 }
             }
-            yield
+            yield ::futures::Async::NotReady;
         }
     })
 }
