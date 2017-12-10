@@ -48,7 +48,7 @@ impl H2ClientPool {
         &self,
         request: Request<()>,
         end_of_stream: bool,
-    ) -> impl Future<Item = h2c::Stream<Bytes>, Error = h2::Error> + 'a {
+    ) -> impl Future<Item = (h2c::ResponseFuture, h2::SendStream<Bytes>), Error = h2::Error> + 'a {
         let s = self.clone();
         async_block! {
             let mut client = await!(s.pop())?;

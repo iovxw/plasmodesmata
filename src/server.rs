@@ -41,10 +41,10 @@ pub fn server(
                 } else {
                     println!("not a http2 client!");
                 }
-                h2s::Server::handshake(client).and_then(move |conn| {
+                h2s::Server::handshake(client).and_then(move |server| {
                     let handle = handle2.clone();
-                    conn.for_each(move |(request, stream)| {
-                        let s = server_handle(handle.clone(), request, stream, server_addr)
+                    server.for_each(move |(request, respond)| {
+                        let s = server_handle(handle.clone(), request, respond, server_addr)
                             .map(move |(client_to_server, server_to_client)| {
                                 println!(
                                     "{:?}: {}, {}",
@@ -77,8 +77,8 @@ pub fn server(
 #[async]
 fn server_handle(
     handle: Handle,
-    request: Request<h2s::Body<Bytes>>,
-    mut stream: h2s::Stream<Bytes>,
+    request: Request<h2::RecvStream>,
+    mut respond: h2s::Respond<Bytes>,
     server_addr: SocketAddr,
 ) -> Result<(usize, usize), h2::Error> {
     let (parts, body) = request.into_parts();
@@ -88,9 +88,9 @@ fn server_handle(
     let server = await!(TcpStream::connect(&server_addr, &handle))?;
     let server = Socket::new(server);
     let response = Response::builder().status(StatusCode::OK).body(()).unwrap();
-    stream.send_response(response, false)?;
+    let sendstream = respond.send_response(response, false)?;
     let (server_reader, server_writer) = (server.clone(), server);
-    let server_to_client = copy_to_h2(server_reader, stream);
+    let server_to_client = copy_to_h2(server_reader, sendstream);
     let client_to_server = copy_from_h2(body, server_writer);
     await!(client_to_server.join(server_to_client))
 }

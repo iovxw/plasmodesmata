@@ -59,12 +59,12 @@ fn client_handle<'a>(
     async_block! {
         let client = Socket::new(client);
         let (client_reader, client_writer) = (client.clone(), client);
-        let mut stream = await!(pool.send_request(req, false))?;
-        let (parts, body) = poll!(stream.poll_response())?.into_parts();
+        let (response, stream) = await!(pool.send_request(req, false))?;
+        let (parts, recvstream) = await!(response)?.into_parts();
         if parts.status != StatusCode::OK {
             unimplemented!();
         }
-        let server_to_client = copy_from_h2(body, client_writer);
+        let server_to_client = copy_from_h2(recvstream, client_writer);
         let client_to_server = copy_to_h2(client_reader, stream);
         await!(client_to_server.join(server_to_client))
     }
