@@ -84,7 +84,7 @@ impl H2ClientPool {
             })
             .and_then(move |(client, connection)| {
                 handle.spawn(connection.map_err(
-                    |e| eprintln!("h2 connection error: {:?}", e),
+                    |e| eprintln!("h2 connection error: {}", e),
                 ));
                 Ok(client)
             })
@@ -92,17 +92,17 @@ impl H2ClientPool {
 
     fn pop<'a>(&self) -> impl Future<Item = h2c::Client<Bytes>, Error = h2::Error> + 'a {
         let s = self.clone();
-        async_block!{
-            let client = s.pool.borrow_mut().pop_front();
-            let mut client = match client {
-                Some(x) => x,
-                None => await!(s.new_client())?,
-            };
+        async_block! {
+            loop {
+                let client = s.pool.borrow_mut().pop_front();
+                let mut client = match client {
+                    Some(x) => x,
+                    None => await!(s.new_client())?,
+                };
 
-            if client.poll_ready().is_err() {
-                unimplemented!() //await!(s.pop())
-            } else {
-                Ok(client)
+                if client.poll_ready().is_ok() {
+                    return Ok(client);
+                }
             }
         }
     }

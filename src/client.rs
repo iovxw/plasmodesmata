@@ -29,14 +29,14 @@ pub fn client(
         let c = client_handle(client, &server_domain, pool.clone())
             .map(move |(client_to_server, server_to_client)| {
                 println!(
-                    "{:?}: {}, {}",
+                    "[{}]: SEND: {}, RECV: {}",
                     client_addr,
                     client_to_server,
                     server_to_client
                 );
             })
-            .or_else(|e| {
-                println!("{:?}", e);
+            .or_else(move |e| {
+                println!("[{}] ERROR: {}", client_addr, e);
                 Ok(())
             });
 

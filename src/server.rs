@@ -28,7 +28,7 @@ pub fn server(
 
     let done = listener.incoming().for_each(move |(client, client_addr)| {
         let handle2 = handle.clone();
-        println!("new client: {}", client_addr);
+        println!("[{}] OPEN", client_addr);
         let connection = tls_config
             .accept_async(client)
             .map_err(Into::into)
@@ -43,25 +43,27 @@ pub fn server(
                 }
                 h2s::Server::handshake(client).and_then(move |server| {
                     let handle = handle2.clone();
-                    server.for_each(move |(request, respond)| {
-                        let s = server_handle(handle.clone(), request, respond, server_addr)
-                            .map(move |(client_to_server, server_to_client)| {
-                                println!(
-                                    "{:?}: {}, {}",
-                                    client_addr,
-                                    client_to_server,
-                                    server_to_client
-                                );
-                            })
-                            .or_else(|e: h2::Error| {
-                                println!("{:?}", e);
-                                Ok(())
-                            });
+                    server
+                        .for_each(move |(request, respond)| {
+                            let s = server_handle(handle.clone(), request, respond, server_addr)
+                                .map(move |(client_to_server, server_to_client)| {
+                                    println!(
+                                        "[{}] SEND: {}, RECV: {}",
+                                        client_addr,
+                                        client_to_server,
+                                        server_to_client
+                                    );
+                                })
+                                .or_else(move |e: h2::Error| {
+                                    println!("[{}] ERROR: {}", client_addr, e);
+                                    Ok(())
+                                });
 
-                        handle.spawn(s);
-                        Ok(())
-                    }).and_then(move |_| {
-                            println!("Connection close: {}", client_addr);
+                            handle.spawn(s);
+                            Ok(())
+                        })
+                        .and_then(move |_| {
+                            println!("[{}] CLOSE", client_addr);
                             Ok(())
                         })
                 })

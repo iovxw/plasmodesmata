@@ -19,11 +19,11 @@ pub fn copy_from_h2<W: AsyncWrite + 'static>(
     let mut counter = 0;
     let mut rc_handle = src.release_capacity().clone();
     #[async]
-    for buf in src {
-        let mut buf = buf.into_buf();
+    for data in src {
+        rc_handle.release_capacity(data.len())?;
+        let mut buf = data.into_buf();
         while buf.remaining() != 0 {
             let n = poll!(dst.write_buf(&mut buf))?;
-            rc_handle.release_capacity(n)?;
             counter += n;
         }
     }
@@ -45,23 +45,25 @@ pub fn copy_to_h2<R: AsyncRead + 'static>(
             break;
         } else {
             while !buf.is_empty() {
-                let dst_cap = dst.capacity();
                 let src_len = buf.len();
-                if src_len > dst_cap {
-                    dst.reserve_capacity(src_len);
-                    if dst_cap == 0 {
-                        poll!(dst.poll_capacity())?;
-                        continue;
+                dst.reserve_capacity(src_len);
+                while dst.capacity() == 0 {
+                    println!("wait!");
+                    // FIXME: should block in here, but seems not
+                    poll!(dst.poll_capacity())?;
+                    // FIXME: remove this block
+                    if dst.capacity() == 0 {
+                        yield Async::NotReady;
                     }
-                    let chunk = buf.split_to(dst_cap).freeze();
-                    dst.send_data(chunk, false)?;
-                } else {
-                    dst.send_data(buf.take().freeze(), false)?;
+                    println!("req: {} cap: {}", src_len, dst.capacity());
                 }
+                let chunk = buf.split_to(dst.capacity()).freeze();
+                dst.send_data(chunk, false)?;
             }
         }
         counter += n;
         let rem = buf.remaining_mut();
+        // make sure remaining size always >= BUF_SIZE
         if rem < BUF_SIZE {
             buf.reserve(BUF_SIZE - rem);
         }
