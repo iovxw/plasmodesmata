@@ -41,32 +41,35 @@ pub fn server(
                 } else {
                     println!("not a http2 client!");
                 }
-                h2s::Server::handshake(client).and_then(move |server| {
-                    let handle = handle2.clone();
-                    server
-                        .for_each(move |(request, respond)| {
-                            let s = server_handle(handle.clone(), request, respond, server_addr)
-                                .map(move |(client_to_server, server_to_client)| {
-                                    println!(
-                                        "[{}] SEND: {}, RECV: {}",
-                                        client_addr,
-                                        client_to_server,
-                                        server_to_client
-                                    );
-                                })
-                                .or_else(move |e: h2::Error| {
-                                    println!("[{}] ERROR: {}", client_addr, e);
-                                    Ok(())
-                                });
+                h2s::Builder::new().handshake(client).and_then(
+                    move |server| {
+                        let handle = handle2.clone();
+                        server
+                            .for_each(move |(request, respond)| {
+                                let s =
+                                    server_handle(handle.clone(), request, respond, server_addr)
+                                        .map(move |(client_to_server, server_to_client)| {
+                                            println!(
+                                                "[{}] SEND: {}, RECV: {}",
+                                                client_addr,
+                                                client_to_server,
+                                                server_to_client
+                                            );
+                                        })
+                                        .or_else(move |e: h2::Error| {
+                                            println!("[{}] ERROR: {}", client_addr, e);
+                                            Ok(())
+                                        });
 
-                            handle.spawn(s);
-                            Ok(())
-                        })
-                        .and_then(move |_| {
-                            println!("[{}] CLOSE", client_addr);
-                            Ok(())
-                        })
-                })
+                                handle.spawn(s);
+                                Ok(())
+                            })
+                            .and_then(move |_| {
+                                println!("[{}] CLOSE", client_addr);
+                                Ok(())
+                            })
+                    },
+                )
             })
             .map_err(|e| println!("{:?}", e));
 
@@ -80,7 +83,7 @@ pub fn server(
 fn server_handle(
     handle: Handle,
     request: Request<h2::RecvStream>,
-    mut respond: h2s::Respond<Bytes>,
+    mut respond: h2s::SendResponse<Bytes>,
     server_addr: SocketAddr,
 ) -> Result<(usize, usize), h2::Error> {
     let (parts, body) = request.into_parts();

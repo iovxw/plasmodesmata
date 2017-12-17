@@ -168,7 +168,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "h2"
 version = "0.1.0"
-source = "git+https://github.com/carllerche/h2#a437d46bee0e162951f6fd616ab8b28d9a64a10a"
+source = "git+https://github.com/carllerche/h2#d0b5b6246ab4b81a61c66032b166e2cd41547d8a"
 dependencies = [
  "byteorder 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "bytes 0.4.5 (registry+https://github.com/rust-lang/crates.io-index)",

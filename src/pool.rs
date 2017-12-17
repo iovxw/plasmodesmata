@@ -22,7 +22,7 @@ pub struct H2ClientPool {
     tls_config: Arc<rustls::ClientConfig>,
     handle: Handle,
     task: Rc<RefCell<Option<::futures::task::Task>>>,
-    pool: Rc<RefCell<VecDeque<h2c::Client<Bytes>>>>,
+    pool: Rc<RefCell<VecDeque<h2c::SendRequest<Bytes>>>>,
 }
 
 impl H2ClientPool {
@@ -58,7 +58,9 @@ impl H2ClientPool {
         }
     }
 
-    fn new_client<'a>(&self) -> impl Future<Item = h2c::Client<Bytes>, Error = h2::Error> + 'a {
+    fn new_client<'a>(
+        &self,
+    ) -> impl Future<Item = h2c::SendRequest<Bytes>, Error = h2::Error> + 'a {
         let task = self.task.clone();
         let domain = self.domain.clone();
         let tls_config = self.tls_config.clone();
@@ -80,7 +82,7 @@ impl H2ClientPool {
                 if let Some(ref task) = *task.borrow() {
                     task.notify();
                 }
-                h2c::Client::handshake(socket)
+                h2c::Builder::new().handshake(socket)
             })
             .and_then(move |(client, connection)| {
                 handle.spawn(connection.map_err(
@@ -90,7 +92,7 @@ impl H2ClientPool {
             })
     }
 
-    fn pop<'a>(&self) -> impl Future<Item = h2c::Client<Bytes>, Error = h2::Error> + 'a {
+    fn pop<'a>(&self) -> impl Future<Item = h2c::SendRequest<Bytes>, Error = h2::Error> + 'a {
         let s = self.clone();
         async_block! {
             loop {
