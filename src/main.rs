@@ -2,6 +2,9 @@
 #![feature(conservative_impl_trait)]
 #![feature(generators)]
 
+#[macro_use]
+extern crate log;
+extern crate env_logger;
 extern crate bytes;
 extern crate rustls;
 extern crate futures_await as futures;
@@ -60,6 +63,7 @@ enum Command {
 }
 
 fn main() {
+    env_logger::init().unwrap();
     let cmd = Command::from_args();
     match cmd {
         Command::Client {

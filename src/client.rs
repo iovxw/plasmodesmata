@@ -21,14 +21,14 @@ pub fn client(
     let handle = lp.handle();
 
     let listener = TcpListener::bind(&listen_addr, &lp.handle()).unwrap();
-    println!("Listening on: {}", listen_addr);
-    println!("Proxying to: {}", server_addr);
+    info!("Listening on: {}", listen_addr);
+    info!("Proxying to: {}", server_addr);
 
     let pool = H2ClientPool::new(lp.handle(), tls_config, server_domain.clone(), server_addr);
     let done = listener.incoming().for_each(move |(client, client_addr)| {
         let c = client_handle(client, &server_domain, pool.clone())
             .map(move |(client_to_server, server_to_client)| {
-                println!(
+                info!(
                     "[{}]: SEND: {}, RECV: {}",
                     client_addr,
                     client_to_server,
@@ -36,7 +36,7 @@ pub fn client(
                 );
             })
             .or_else(move |e| {
-                println!("[{}] ERROR: {}", client_addr, e);
+                error!("[{}] {}", client_addr, e);
                 Ok(())
             });
 

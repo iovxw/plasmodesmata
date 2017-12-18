@@ -23,12 +23,12 @@ pub fn server(
     let handle = lp.handle();
 
     let listener = TcpListener::bind(&listen_addr, &lp.handle()).unwrap();
-    println!("Listening on: {}", listen_addr);
-    println!("Proxying to: {}", server_addr);
+    info!("Listening on: {}", listen_addr);
+    info!("Proxying to: {}", server_addr);
 
     let done = listener.incoming().for_each(move |(client, client_addr)| {
         let handle2 = handle.clone();
-        println!("[{}] OPEN", client_addr);
+        info!("[{}] OPEN", client_addr);
         let connection = tls_config
             .accept_async(client)
             .map_err(Into::into)
@@ -39,7 +39,7 @@ pub fn server(
                 };
                 if let Some(ALPN_H2) = negotiated_protcol.as_ref().map(|x| &**x) {
                 } else {
-                    println!("not a http2 client!");
+                    error!("[{}] not a http2 client!", client_addr);
                 }
                 h2s::Builder::new().handshake(client).and_then(
                     move |server| {
@@ -49,7 +49,7 @@ pub fn server(
                                 let s =
                                     server_handle(handle.clone(), request, respond, server_addr)
                                         .map(move |(client_to_server, server_to_client)| {
-                                            println!(
+                                            info!(
                                                 "[{}] SEND: {}, RECV: {}",
                                                 client_addr,
                                                 client_to_server,
@@ -57,7 +57,7 @@ pub fn server(
                                             );
                                         })
                                         .or_else(move |e: h2::Error| {
-                                            println!("[{}] ERROR: {}", client_addr, e);
+                                            error!("[{}] {}", client_addr, e);
                                             Ok(())
                                         });
 
@@ -65,13 +65,13 @@ pub fn server(
                                 Ok(())
                             })
                             .and_then(move |_| {
-                                println!("[{}] CLOSE", client_addr);
+                                info!("[{}] CLOSE", client_addr);
                                 Ok(())
                             })
                     },
                 )
             })
-            .map_err(|e| println!("{:?}", e));
+            .map_err(move |e| error!("[{}] {}", client_addr, e));
 
         handle.spawn(connection);
         Ok(())

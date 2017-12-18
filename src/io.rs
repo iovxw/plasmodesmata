@@ -40,28 +40,17 @@ pub fn copy_to_h2<R: AsyncRead + 'static>(
     let mut buf = BytesMut::with_capacity(BUF_SIZE);
     loop {
         let n = poll!(src.read_buf(&mut buf))?;
-        if n == 0 {
-            dst.send_data(Bytes::new(), true)?;
-            break;
-        } else {
-            while !buf.is_empty() {
-                let src_len = buf.len();
-                dst.reserve_capacity(src_len);
-                while dst.capacity() == 0 {
-                    println!("wait!");
-                    // FIXME: should block in here, but seems not
-                    poll!(dst.poll_capacity())?;
-                    // FIXME: remove this block
-                    if dst.capacity() == 0 {
-                        yield Async::NotReady;
-                    }
-                    println!("req: {} cap: {}", src_len, dst.capacity());
-                }
-                let chunk = buf.split_to(dst.capacity()).freeze();
-                dst.send_data(chunk, false)?;
-            }
+        let end_of_stream = n == 0;
+        let src_len = buf.len();
+        dst.reserve_capacity(src_len);
+        while dst.capacity() < src_len {
+            poll!(dst.poll_capacity())?;
         }
+        dst.send_data(buf.take().freeze(), end_of_stream)?;
         counter += n;
+        if end_of_stream {
+            break;
+        }
         let rem = buf.remaining_mut();
         // make sure remaining size always >= BUF_SIZE
         if rem < BUF_SIZE {
