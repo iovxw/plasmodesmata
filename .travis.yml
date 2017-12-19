@@ -9,7 +9,7 @@ os:
 - linux
 - osx
 rust:
-- nightly
+- nightly-2017-12-05
 after_success: |
   bash <(curl https://raw.githubusercontent.com/xd009642/tarpaulin/master/travis-install.sh)
   cargo tarpaulin --ciserver travis-ci --coveralls $TRAVIS_JOB_ID
