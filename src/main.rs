@@ -13,6 +13,7 @@ extern crate tokio_io;
 extern crate tokio_rustls;
 extern crate http;
 extern crate h2;
+extern crate webpki;
 extern crate webpki_roots;
 extern crate structopt;
 #[macro_use]
@@ -98,7 +99,7 @@ fn main() {
             let server_addr: SocketAddr = remote.parse().expect(
                 "Server address is not a valid IP address",
             );
-            let mut tls_config = rustls::ServerConfig::new();
+            let mut tls_config = rustls::ServerConfig::new(rustls::NoClientAuth::new());
             tls_config.alpn_protocols.push(ALPN_H2.to_owned());
             let certs = load_certs(&certificate);
             let privkey = load_private_key(&key);

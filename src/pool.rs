@@ -11,6 +11,7 @@ use bytes::Bytes;
 use h2::{self, client as h2c};
 use http::Request;
 use rustls::{self, Session};
+use webpki::DNSNameRef;
 use tokio_rustls::ClientConfigExt;
 
 use super::ALPN_H2;
@@ -48,7 +49,8 @@ impl H2ClientPool {
         &self,
         request: Request<()>,
         end_of_stream: bool,
-    ) -> impl Future<Item = (h2c::ResponseFuture, h2::SendStream<Bytes>), Error = h2::Error> + 'a {
+    ) -> impl Future<Item = (h2c::ResponseFuture, h2::SendStream<Bytes>), Error = h2::Error> + 'a
+    {
         let s = self.clone();
         async_block! {
             let mut client = await!(s.pop())?;
@@ -68,16 +70,17 @@ impl H2ClientPool {
         TcpStream::connect(&self.addr, &self.handle)
             .map_err(h2::Error::from)
             .and_then(move |tcp| {
-                tls_config.connect_async(&domain, tcp).map_err(Into::into)
+                let domain = DNSNameRef::try_from_ascii_str(&domain).unwrap();
+                tls_config.connect_async(domain, tcp).map_err(Into::into)
             })
             .and_then(move |socket| {
-                let negotiated_protcol = {
+                {
                     let (_, session) = socket.get_ref();
-                    session.get_alpn_protocol()
-                };
-                if let Some(ALPN_H2) = negotiated_protcol.as_ref().map(|x| &**x) {
-                } else {
-                    println!("not a http2 server!");
+                    let negotiated_protcol = session.get_alpn_protocol();
+                    if let Some(ALPN_H2) = negotiated_protcol.as_ref().map(|x| &**x) {
+                    } else {
+                        println!("not a http2 server!");
+                    }
                 }
                 if let Some(ref task) = *task.borrow() {
                     task.notify();
@@ -85,9 +88,7 @@ impl H2ClientPool {
                 h2c::Builder::new().handshake(socket)
             })
             .and_then(move |(client, connection)| {
-                handle.spawn(connection.map_err(
-                    |e| eprintln!("h2 connection error: {}", e),
-                ));
+                handle.spawn(connection.map_err(|e| eprintln!("h2 connection error: {}", e)));
                 Ok(client)
             })
     }

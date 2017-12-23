@@ -6,11 +6,11 @@ use tokio_core::net::{TcpListener, TcpStream};
 use tokio_core::reactor::{Core, Handle};
 use bytes::Bytes;
 use h2::{self, server as h2s};
-use http::{Request, Response, Method, StatusCode};
+use http::{Method, Request, Response, StatusCode};
 use rustls::{self, Session};
 use tokio_rustls::ServerConfigExt;
 
-use io::{copy_from_h2, copy_to_h2, Socket};
+use io::{Socket, copy_from_h2, copy_to_h2};
 
 use super::ALPN_H2;
 
@@ -33,16 +33,17 @@ pub fn server(
             .accept_async(client)
             .map_err(Into::into)
             .and_then(move |client| {
-                let negotiated_protcol = {
+                {
                     let (_, session) = client.get_ref();
-                    session.get_alpn_protocol()
-                };
-                if let Some(ALPN_H2) = negotiated_protcol.as_ref().map(|x| &**x) {
-                } else {
-                    error!("[{}] not a http2 client!", client_addr);
+                    let negotiated_protcol = session.get_alpn_protocol();
+                    if let Some(ALPN_H2) = negotiated_protcol.as_ref().map(|x| &**x) {
+                    } else {
+                        error!("[{}] not a http2 client!", client_addr);
+                    }
                 }
-                h2s::Builder::new().handshake(client).and_then(
-                    move |server| {
+                h2s::Builder::new()
+                    .handshake(client)
+                    .and_then(move |server| {
                         let handle = handle2.clone();
                         server
                             .for_each(move |(request, respond)| {
@@ -51,9 +52,7 @@ pub fn server(
                                         .map(move |(client_to_server, server_to_client)| {
                                             info!(
                                                 "[{}] SEND: {}, RECV: {}",
-                                                client_addr,
-                                                client_to_server,
-                                                server_to_client
+                                                client_addr, client_to_server, server_to_client
                                             );
                                         })
                                         .or_else(move |e: h2::Error| {
@@ -68,8 +67,7 @@ pub fn server(
                                 info!("[{}] CLOSE", client_addr);
                                 Ok(())
                             })
-                    },
-                )
+                    })
             })
             .map_err(move |e| error!("[{}] {}", client_addr, e));
 
