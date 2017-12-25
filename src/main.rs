@@ -2,25 +2,25 @@
 #![feature(conservative_impl_trait)]
 #![feature(generators)]
 
+extern crate bytes;
+extern crate env_logger;
+extern crate futures_await as futures;
+extern crate h2;
+extern crate http;
 #[macro_use]
 extern crate log;
-extern crate env_logger;
-extern crate bytes;
 extern crate rustls;
-extern crate futures_await as futures;
-extern crate tokio_core;
-extern crate tokio_io;
-extern crate tokio_rustls;
-extern crate http;
-extern crate h2;
-extern crate webpki;
-extern crate webpki_roots;
 extern crate structopt;
 #[macro_use]
 extern crate structopt_derive;
+extern crate tokio_core;
+extern crate tokio_io;
+extern crate tokio_rustls;
+extern crate webpki;
+extern crate webpki_roots;
 
 use std::fs::File;
-use std::io::{Read, BufReader};
+use std::io::{BufReader, Read};
 use std::sync::Arc;
 use std::net::SocketAddr;
 
@@ -43,28 +43,23 @@ const ALPN_H2: &str = "h2";
 enum Command {
     #[structopt(name = "client")]
     Client {
-        #[structopt(short = "l", help = "Local address")]
-        local: String,
-        #[structopt(short = "r", help = "Remote address")]
-        remote: String,
-        #[structopt(short = "d", help = "Remote domain")]
-        domain: String,
+        #[structopt(short = "l", help = "Local address")] local: String,
+        #[structopt(short = "r", help = "Remote address")] remote: String,
+        #[structopt(short = "d", help = "Remote domain")] domain: String,
     },
     #[structopt(name = "server")]
     Server {
-        #[structopt(short = "l", help = "Local address")]
-        local: String,
-        #[structopt(short = "r", help = "Remote address")]
-        remote: String,
-        #[structopt(short = "c", help = "Specify certificate file")]
-        certificate: String,
-        #[structopt(short = "k", help = "Specify certificate private key")]
-        key: String,
+        #[structopt(short = "l", help = "Local address")] local: String,
+        #[structopt(short = "r", help = "Remote address")] remote: String,
+        #[structopt(short = "c", help = "Specify certificate file")] certificate: String,
+        #[structopt(short = "k", help = "Specify certificate private key")] key: String,
     },
 }
 
 fn main() {
-    env_logger::init().unwrap();
+    env_logger::Builder::new()
+        .filter(None, log::LevelFilter::Info)
+        .init();
     let cmd = Command::from_args();
     match cmd {
         Command::Client {
@@ -72,17 +67,17 @@ fn main() {
             remote,
             domain,
         } => {
-            let local_addr: SocketAddr = local.parse().expect(
-                "Local address is not a valid IP address",
-            );
+            let local_addr: SocketAddr = local
+                .parse()
+                .expect("Local address is not a valid IP address");
             // FIXME: resolve DNS
-            let server_addr: SocketAddr = remote.parse().expect(
-                "Server address is not a valid IP address",
-            );
+            let server_addr: SocketAddr = remote
+                .parse()
+                .expect("Server address is not a valid IP address");
             let mut tls_config = rustls::ClientConfig::new();
-            tls_config.root_store.add_server_trust_anchors(
-                &TLS_SERVER_ROOTS,
-            );
+            tls_config
+                .root_store
+                .add_server_trust_anchors(&TLS_SERVER_ROOTS);
             tls_config.alpn_protocols.push(ALPN_H2.to_owned());
             let tls_config = Arc::new(tls_config);
             client(local_addr, tls_config, domain, server_addr)
@@ -93,12 +88,12 @@ fn main() {
             certificate,
             key,
         } => {
-            let local_addr: SocketAddr = local.parse().expect(
-                "Local address is not a valid IP address",
-            );
-            let server_addr: SocketAddr = remote.parse().expect(
-                "Server address is not a valid IP address",
-            );
+            let local_addr: SocketAddr = local
+                .parse()
+                .expect("Local address is not a valid IP address");
+            let server_addr: SocketAddr = remote
+                .parse()
+                .expect("Server address is not a valid IP address");
             let mut tls_config = rustls::ServerConfig::new(rustls::NoClientAuth::new());
             tls_config.alpn_protocols.push(ALPN_H2.to_owned());
             let certs = load_certs(&certificate);
@@ -128,9 +123,8 @@ fn load_private_key(filename: &str) -> rustls::PrivateKey {
     let pkcs8_keys = {
         let keyfile = File::open(filename).expect("Cannot open private key file");
         let mut reader = BufReader::new(keyfile);
-        rustls::internal::pemfile::pkcs8_private_keys(&mut reader).expect(
-            "File contains invalid pkcs8 private key (encrypted keys not supported)",
-        )
+        rustls::internal::pemfile::pkcs8_private_keys(&mut reader)
+            .expect("File contains invalid pkcs8 private key (encrypted keys not supported)")
     };
 
     // prefer to load pkcs8 keys

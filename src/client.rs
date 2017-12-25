@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use http::{Request, Method, StatusCode};
+use http::{Method, Request, StatusCode};
 use futures::prelude::*;
 use tokio_core::net::{TcpListener, TcpStream};
 use tokio_core::reactor::Core;
@@ -9,7 +9,7 @@ use h2;
 use rustls;
 
 use pool::H2ClientPool;
-use io::{copy_from_h2, copy_to_h2, Socket};
+use io::{Socket, copy_from_h2, copy_to_h2};
 
 pub fn client(
     listen_addr: SocketAddr,
@@ -30,9 +30,7 @@ pub fn client(
             .map(move |(client_to_server, server_to_client)| {
                 info!(
                     "[{}]: SEND: {}, RECV: {}",
-                    client_addr,
-                    client_to_server,
-                    server_to_client
+                    client_addr, client_to_server, server_to_client
                 );
             })
             .or_else(move |e| {

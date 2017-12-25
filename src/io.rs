@@ -5,7 +5,7 @@ use std::net::Shutdown;
 use futures::prelude::*;
 use tokio_io::{AsyncRead, AsyncWrite};
 use tokio_io::io::shutdown;
-use bytes::{BytesMut, Bytes, Buf, BufMut, IntoBuf};
+use bytes::{Buf, BufMut, Bytes, BytesMut, IntoBuf};
 use h2;
 use tokio_core::net::TcpStream;
 

@@ -6,7 +6,7 @@ authors = ["iovxw <iovxw@outlook.com>"]
 [dependencies]
 bytes = "0.4"
 log = "0.4"
-env_logger = "0.4"
+env_logger = "0.5.0-rc.2"
 rustls = "0.12"
 futures = "0.1"
 tokio-core = "0.1"
