@@ -1,6 +1,6 @@
 [package]
 name = "plasmodesmata"
-version = "0.1.3"
+version = "0.1.4"
 authors = ["iovxw <iovxw@outlook.com>"]
 
 [dependencies]
