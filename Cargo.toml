@@ -18,4 +18,4 @@ structopt = "0.1"
 structopt-derive = "0.1"
 http = "0.1"
 futures-await = "0.1"
-h2 = { git = "https://github.com/carllerche/h2", features = ["unstable"] }
+h2 = "0.1"
